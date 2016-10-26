@@ -1,0 +1,58 @@
+# Install pre-requisites of Spark
+
+---
+- hosts: 127.0.0.1
+  connection: ssh
+#  remote_user: root
+
+  tasks:
+    - name: Test connection
+      ping:
+
+    - name: Include variables from configuration file
+      include_vars: variables.yml
+
+    - name: Check variables are defined correctly
+      debug: msg="JAVA_HOME = {{java_home}}"
+
+    - name: Install pre-requisite applications using apt-get
+      apt: name={{item}} state=present
+      with_items: "{{apt_applications_to_install}}"
+      when: ansible_distribution == "Debian"
+
+    - name: Install pre-requisite libraries using apt-get
+      apt: name={{item}} state=present
+      with_items: "{{apt_libraries_to_install}}"
+      when: ansible_distribution == "Debian"
+
+    - name: Create directory for Java
+      file: path=/usr/java state=directory
+      when: install_jdk_binary == True
+
+    - name: Create directory for Java under /opt
+      file: path=/opt/java state=directory
+      when: install_jdk_binary == True
+
+    - name: Install Java tarball
+      unarchive:
+        src={{java_tarball}}
+        dest=/opt/java
+        copy=yes
+        creates="{{ java_home }}/LICENSE"
+      when: install_jdk_binary == True
+
+    - name: Create symlink for Java
+      file: src="{{ java_home }}" dest=/usr/java/latest owner=root group=root state=link
+      when: install_jdk_binary == True
+
+    - name: Install Scala tarball
+      unarchive:
+        src=../packages/scala-2.11.4.tgz
+        dest=/opt
+        copy=yes
+        creates="{{ scala_home }}/doc/LICENSE.md"
+
+    - debug: msg="Distribution= {{ansible_distribution}}"
+      when: ansible_distribution != "Debian"
+
+

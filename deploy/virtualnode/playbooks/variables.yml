@@ -1,0 +1,48 @@
+# Variables for Ansible installation of Multinode Spark
+---
+
+# Root directory of Spark installation
+install_root: /tmp/spark2.0hpcplatform
+
+# How many workers to run on this machine
+num_workers: 8
+
+# How much memory for each worker
+worker_memory: 64g
+driver_memory: 24g
+executor_memory: 48g
+
+# Master tmpfs size (for example, 40g)
+master_tmpfs_size: 10g
+
+# Worker tmpfs size (for example, 100g)
+worker_tmpfs_size: 100g
+
+# Directory where the work files of the executors will be stored
+work_dir: /var/tmp/WORK_DIRS2
+
+scala_home: /opt/scala-2.11.4
+
+#################### ADVANCED OPTIONS ################################
+
+# Fraction of the cores to assign to SPARK_WORKER_CORES, and to GC
+cores_fraction: 0.8
+gc_fraction: 0.8
+
+# Start of range of WebUI ports of workers. Ports 8280 ... 8280+N
+# need to be free on this machine.
+webui_port_base: 8280
+
+# Firesteel JAR file
+firesteel_jar: ../pkg/firesteel-2.0.0-SNAPSHOT.jar
+
+# Install Sparkle JAR? True for pre-packaged JAR under packages/
+use_firesteel_jar: False
+
+# Install our version of Scala?
+install_scala: False
+
+# Binary package of base Spark 2.0
+spark_tgz: ../pkg/spark-hebomoia.08.29.2016.tar.gz
+use_spark_tgz: False
+

@@ -1,0 +1,105 @@
+
+# A task to unpack either a master or worker node
+
+    - include_vars: variables.yml
+
+    - fail: msg="JAVA_HOME variable not set"
+      when: java_home | match("^$")
+    - stat: path={{java_home}}
+      register: java_home_stat
+      ignore_errors: true
+    - fail: msg="JAVA_HOME variable doesn't point to a directory"
+      when: not java_home_stat.stat.exists
+    - stat: path="{{java_home}}/bin/java"
+      register: java_home_stat
+    - fail: msg="JAVA_HOME={{java_home}} but {{java_home}}/bin/java doesn't exist"
+      when: not java_home_stat.stat.exists
+    - debug: msg="JAVA_HOME={{java_home}}"
+
+    - file: path={{dest}} state=directory
+
+    - debug: msg="Where is Spark2.0 (SPARK_HOME) unpacked?"
+    - shell: cat "{{install_root}}/spark_2.0_dir.txt"
+      register: spark_path_out
+    - set_fact: spark2_0="{{install_root}}/{{spark_path_out.stdout}}"
+      when: use_spark_tgz
+    - set_fact: spark2_0="{{spark_path_out.stdout}}"
+      when: use_spark_tgz == False
+    - debug: msg="Spark 2.0 = {{spark2_0}}"
+
+    - debug: msg="Create symlinks ..."
+    - file: path="{{dest}}/assembly" src="{{spark2_0}}/assembly" state=link
+    - file: path="{{dest}}/tools"    src="{{spark2_0}}/tools"    state=link
+
+    - debug: msg="Copy files from Spark2.0 dir ..."
+    - copy: src="{{spark2_0}}/bin"  dest="{{dest}}"
+    - copy: src="{{spark2_0}}/sbin" dest="{{dest}}"
+
+    - shell: "chmod 755 {{dest}}/sbin/*"
+    - shell: "chmod 755 {{dest}}/bin/*"
+
+    - debug: msg="Create empty sub-dirs ..."
+    - file: path="{{dest}}/logs" state=directory
+    - file: path="{{dest}}/pids" state=directory
+
+    # Create the directories where the templates will go
+    - debug: msg="Create sub-directories under {{source}}"
+
+    - shell: "find {{source}} -type d -mindepth 1"
+      register: sub_dirs
+
+    - file: path="{{dest}}/{{item|basename}}" state=directory
+      with_items: sub_dirs.stdout_lines
+
+    - file: path="{{dest}}/{{item|basename}}" state=directory
+      with_fileglob: "{{source}}/*"
+
+    - debug: msg="Get CPU affinity for node={{worker}}"
+
+    - name: Get list of CPU's for the worker
+      shell: "../scripts/workers-per-socket.pl {{num_workers}} | grep '^{{worker}}:'"
+      register: list_cpus_cmd
+
+    - shell: "echo '{{list_cpus_cmd.stdout}}' | awk -F: '{print $2}'"
+      register: socket_cmd_out
+
+    - shell: "echo '{{list_cpus_cmd.stdout}}' | awk -F: '{print $3}'"
+      register: cpus_cmd_out
+
+    - set_fact: memnode_affinity={{socket_cmd_out.stdout}}
+    - set_fact: core_affinity={{cpus_cmd_out.stdout}}
+
+    - set_fact: total_cores={{ core_affinity.split(',')|length }}
+    - shell: echo "print int(round( {{total_cores}} * {{cores_fraction}}))" | python
+      register: calc_result
+    - set_fact: worker_cores={{calc_result.stdout}}
+
+    - shell: echo "print int(round( {{total_cores}} * {{gc_fraction}}))" | python
+      register: calc_result
+    - set_fact: gc_cores={{calc_result.stdout}}
+
+    - set_fact: worker_webui_port={{ (webui_port_base|int) + (worker|int) }}
+
+    # We are templating files with source paths like ...source_dir.../master/bin/file1
+    # into a destination path of the form ...dest_dir.../master/bin/file1
+    # ==> We need to keep only the last 2 elements of the path
+    - debug: msg="Template-ize files from source '{{source}}' to destination '{{dest}}'"
+
+    - template: src="{{item}}" dest="{{dest}}/{{item | dirname | basename }}/{{item|basename}}"
+      with_fileglob: "{{source}}/*/*"
+
+    # Re-do the .sh template files, with executable bit on
+
+    - template: src="{{item}}" dest="{{dest}}/{{item | dirname | basename }}/{{item|basename}}"
+        mode=0755
+      with_fileglob: "{{source}}/*/*.sh"
+
+    # WORK DIR -- If the directory of the node is ...dest_dir.../multicore/nodeID
+    # the work dir will be {{work_dir}}/nodeID
+    # Example of nodeID: master, worker3
+    - file: state=directory path="{{work_dir}}/{{dest|basename}}"
+    - file: state=directory path="{{work_dir}}/{{dest|basename}}/eventLog"
+    - file: state=directory path="{{work_dir}}/{{dest|basename}}/local"
+
+
+

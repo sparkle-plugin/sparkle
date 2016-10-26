@@ -1,0 +1,93 @@
+# Create root directory for Multinode Spark
+
+---
+- hosts: 127.0.0.1
+  connection: local
+
+  vars:
+
+    - nl: "\n"
+
+  tasks:
+
+    - include_vars: variables.yml
+
+    - name: Find current playbook path
+      shell: pwd
+      register: pwd_out
+    - set_fact: pwd={{pwd_out.stdout}}
+
+    - debug: msg="Create root directory = {{install_root}}"
+
+    # Unpack Spark2.0 tarball (optional)
+    - file: "path={{install_root}}/tmp state=directory"
+      when: use_spark_tgz
+
+    - name: unpack Spark2.0 tarball
+      unarchive: src={{spark_tgz}} dest={{install_root}}/tmp
+      when: use_spark_tgz
+
+    # Assume the Spark2.0 tarball has only one root dir in it
+    - shell: ls {{install_root}}/tmp
+      register: ls_tmp
+      when: use_spark_tgz
+    - set_fact: unpacked_dir={{ls_tmp.stdout_lines[0]}}
+      when: use_spark_tgz
+    - set_fact: unpacked_top_dirs="{{ls_tmp.stdout_lines | length}}"
+      when: use_spark_tgz
+    - set_fact: unpacked_top_dirs="0"
+      when: use_spark_tgz == False
+    - fail: msg="Spark2.0 tarball '{{spark_tgz}} contained {{unpacked_top_dirs}} top entries, only 1 expected"
+      when: "{{use_spark_tgz}} == True and {{unpacked_top_dirs|int}} != 1"
+
+    - name: Copy Spark2,0 dir to its final location
+      shell: mv {{install_root}}/tmp/{{unpacked_dir}} {{install_root}}
+      when: use_spark_tgz
+    - file: "path={{install_root}}/tmp state=absent"
+      when: use_spark_tgz
+
+    # Where to copy the firesteel JAR file
+    - set_fact: spark_hpc_lib="{{install_root}}//{{unpacked_dir}}/lib"
+      when: use_spark_tgz == True
+    - set_fact: spark_hpc_lib="{{install_root}}/lib"
+      when: use_spark_tgz == False
+    - file: path="{{spark_hpc_lib}}" state=directory
+
+    - name: Copy Firesteel JAR
+      copy:
+        src={{firesteel_jar}}
+        dest="{{spark_hpc_lib}}"
+      when: use_firesteel_jar
+
+    - name: Spark default template
+      template: src=../templates/spark/spark-defaults.conf dest="{{spark_home_dir}}/conf" backup=yes
+    - name: Spark default environment
+      template: src=../templates/spark/spark-env.sh dest="{{spark_home_dir}}/conf" backup=yes
+
+    # Save the path of the Spark2.0
+    - shell: "echo {{unpacked_dir}} > {{install_root}}/spark_2.0_dir.txt"
+      when: use_spark_tgz == True
+    - shell: "echo {{spark_home_dir}} > {{install_root}}/spark_2.0_dir.txt"
+      when: use_spark_tgz == False
+
+    ###### UTILITY SCRIPTS ######
+    # Copy utility scripts to start, stop, etc.
+    - template: src={{item}} dest="{{install_root}}/{{item|basename}}"
+        mode=0755
+      with_fileglob: "../templates/scripts/*"
+
+    ###### TEST SCRIPTS ######
+    - file: path="{{install_root}}/examples" state=directory
+    - name: Copy test scripts
+      template: src={{item}} dest="{{install_root}}/examples"
+        mode=0755
+      with_fileglob: "../templates/examples/*"
+
+    ##### Example JAR's #####
+    - file: "path={{install_root}}/lib state=directory"
+    - debug: msg="Please copy the PageRank and GroupBy JAR files to {{install_root}}/lib"
+
+    #- file: path="{{install_root}}/lib" state=directory
+    #- copy: src="../packages/pagerank-computation-project_2.11-3.0.jar" dest="{{install_root}}/lib"
+    #- copy: src="../packages/simple-groupby-computation-project_2.11-2.0.jar" dest="{{install_root}}/lib"
+

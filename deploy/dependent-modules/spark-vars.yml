@@ -1,0 +1,33 @@
+# Variables for Ansible installation of Spark4TM
+---
+
+applications_to_install:
+  - cmake
+  - emacs
+  - vim
+  - git
+  - python
+  - python34
+  - gcc-c++
+  - gflags
+
+libraries_to_install:
+  - gtest-devel
+  - glog-devel
+  - numactl-devel
+  - numactl-libs
+  - numactl
+  - libconfig
+  - libattr-devel
+  - yaml-cpp-devel
+  - attr
+  - tbb
+  - tbb-devel
+  - gperftools-libs
+  - python-devel
+  - python34-devel
+  - python-devel
+  - bzip2-devel
+  - gflags-devel
+
+

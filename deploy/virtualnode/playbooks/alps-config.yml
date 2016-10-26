@@ -1,0 +1,38 @@
+# Install pre-requisites of Spark
+
+---
+- hosts: 127.0.0.1
+  connection: ssh
+#  remote_user: root
+
+  tasks:
+
+    - name: Include variables from configuration file
+      include_vars: variables.yml
+
+    - name: Check variables are defined correctly
+      debug: msg="JAVA_HOME = {{java_home}}"
+
+    - debug: msg="Configure ALPS"
+
+    ##### ALPS INSTALLATION AND CONFIGURATION #####
+
+    - stat: path=/usr/local/bin/globalheap-util
+      register: stat_globalheap
+    - fail: msg="Could not find /usr/local/bin/globalheap-util"
+      when: not stat_globalheap.stat.exists
+
+    - file: path="/dev/shm/@@lockfile@@" state=touch
+    - shell: ls /dev/shm/nvm/global0
+      register: global0_ls
+    - file: path="/dev/shm/nvm" state=directory
+      when: global0_ls|failed
+    - shell: globalheap-util create /dev/shm/nvm/global0 --size=128G
+      when: global0_ls|failed
+    - shell: globalheap-util format /dev/shm/nvm/global0
+      when: global0_ls|failed
+
+    - debug: msg="Distribution= {{ansible_distribution}}"
+      when: ansible_distribution != "Debian"
+
+

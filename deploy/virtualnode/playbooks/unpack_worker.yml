@@ -1,0 +1,42 @@
+# Populate a worker directory for Multinode Spark
+
+---
+- hosts: 127.0.0.1
+  connection: local
+
+  vars:
+
+    - nl: "\n"
+
+  tasks:
+
+    - include_vars: variables.yml
+
+    - fail: msg="JAVA_HOME variable not set"
+      when: java_home | match("^$")
+    - stat: path={{java_home}}
+      register: java_home_stat
+      ignore_errors: true
+    - fail: msg="JAVA_HOME variable doesn't point to a directory"
+      when: not java_home_stat.stat.exists
+    - stat: path="{{java_home}}/bin/java"
+      register: java_home_stat
+    - fail: msg="JAVA_HOME={{java_home}} but {{java_home}}/bin/java doesn't exist"
+      when: not java_home_stat.stat.exists
+    - debug: msg="JAVA_HOME={{java_home}}"
+
+    - name: Check root dir exists
+      stat: path={{install_root}}
+      register: state_root
+
+    - fail: msg="Directory {{install_root}} not found"
+      when: not state_root.stat.isdir or state_root.stat.islnk
+
+    - set_fact: "multi={{install_root}}/multicore"
+
+    - name: Create worker dir
+      file: path="{{multi}}/worker{{worker}}" state=directory
+
+    - include: unpack_node.yml source=../templates/worker0 dest={{multi}}/worker{{worker}} worker=0
+
+

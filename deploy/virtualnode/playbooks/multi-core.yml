@@ -1,0 +1,47 @@
+# Populate multicore directory for Multinode Spark
+
+---
+- hosts: 127.0.0.1
+  connection: local
+
+  tasks:
+
+    - include_vars: variables.yml
+
+    - fail: msg="JAVA_HOME variable not set"
+      when: java_home | match("^$")
+    - stat: path={{java_home}}
+      register: java_home_stat
+      ignore_errors: true
+    - fail: msg="JAVA_HOME variable doesn't point to a directory"
+      when: not java_home_stat.stat.exists
+    - stat: path="{{java_home}}/bin/java"
+      register: java_home_stat
+    - fail: msg="JAVA_HOME={{java_home}} but {{java_home}}/bin/java doesn't exist"
+      when: not java_home_stat.stat.exists
+    - debug: msg="JAVA_HOME={{java_home}}"
+
+    - name: Check root dir exists
+      stat: path={{install_root}}
+      register: state_root
+
+    - fail: msg="Directory {{install_root}} not found"
+      when: not state_root.stat.isdir or state_root.stat.islnk
+
+    - name: Create worker dir
+      file: "path={{install_root}}/multicore state=directory"
+
+    - set_fact: "multi={{install_root}}/multicore"
+
+    - debug: msg="Will create {{num_workers}} nodes under {{multi}} ..."
+
+    - name: list all workers 0 ... n-1
+      shell: "export x={{num_workers}}; seq 0 $((x-1))"
+      register: workers_list_cmd
+
+    - include: unpack_node.yml source=../templates/master dest={{multi}}/master worker=0
+
+    - name: Run templates for all workers 0 ... n-1
+      shell: ansible-playbook -i inventory.yml unpack_worker.yml --extra-vars "worker={{item}} source=../templates/worker0 dest={{multi}}/worker{{item}} java_home={{java_home}}" > /tmp/spark-hpc-install-worker-{{item}}.out 2> /tmp/spark-hpc-install-worker-{{item}}.err
+      with_items: "{{ workers_list_cmd.stdout_lines }}"
+

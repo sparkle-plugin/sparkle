@@ -1,0 +1,25 @@
+# Install Spark-HPC pre-requisite software packages
+# NOTE: remote_user needs to be changed to the account
+# name you use to connect to the machines where you will
+# perform the install. This account needs to have sudo
+# permissions.
+
+---
+- hosts: 127.0.0.1
+  connection: ssh
+#  remote_user: root
+
+  tasks:
+
+    - name: Include variables from configuration file
+      include_vars: spark-vars.yml
+
+    - name: Install applications
+      yum: name="{{item}}" state=latest
+      with_items: "{{applications_to_install}}"
+
+    - name: Install libraries
+      yum: name="{{item}}" state=latest
+      with_items: "{{libraries_to_install}}"
+
+

@@ -1,0 +1,59 @@
+# Ansible local play
+
+---
+- hosts: 127.0.0.1
+  connection: ssh
+#  remote_user: root
+
+  vars:
+
+    - nl: "\n"
+
+  tasks:
+
+    - ping:
+    
+    - debug: msg="Distribution= {{ansible_distribution}}"
+    - name: echo java home
+      shell: echo $JAVA_HOME
+      register: java_home_echo
+    - debug: var=java_home_echo
+
+    # ansible-playbook -i inventory.yml --extra-vars '{"myvar": "This is my var"}' ansible-test.yml
+    # - debug: var=myvar
+
+
+    - fail: msg=bye
+    - set_fact: x=1
+    - set_fact: y=1
+    - set_fact: z={{ (x|int) +(y|int) }}
+    - debug: var=z
+
+    - fail: msg=bye
+
+    - set_fact: str1="a,b,c,d,e"
+    - set_fact: split1={{ str1.split(',') }}
+    - debug: var={{ str1.split(',')|length }}
+    - debug: var=item
+      with_items: "str1.split(',')"
+
+    - fail: msg=bye
+
+    - include_vars: variables.yml
+
+    - name: Find current playbook path
+      shell: pwd
+      register: pwd_out
+    - set_fact: pwd={{pwd_out.stdout}}
+
+    - name: Delete old templates TODO DELETE
+      shell: rm -f /tmp/deleteme*.txt
+
+    - name: list all workers 0 ... n-1
+      shell: "export x={{num_workers}}; seq 0 $((x-1))"
+      register: workers_list_cmd
+
+    - name: Run templates for all workers 0 ... n-1
+      shell: ansible-playbook -i inventory.yml crea-template.yml --extra-vars worker={{item}}
+      with_items: "{{ workers_list_cmd.stdout_lines }}"
+
