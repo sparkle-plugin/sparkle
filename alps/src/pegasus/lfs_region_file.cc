@@ -24,15 +24,6 @@
 #include <boost/filesystem/path.hpp>
 #include <boost/filesystem/operations.hpp>
 
-#ifdef __ARCH_FAM__
-#ifdef __cplusplus
-extern "C" {
-#endif
-#include <fam_atomic.h>
-#ifdef __cplusplus
-}
-#endif
-#endif
 
 #include "common/assert_nd.hh"
 #include "common/debug.hh"
@@ -134,11 +125,6 @@ ErrorCode LfsRegionFile::map(void* addr_hint, size_t length, int prot, int flags
     }
     LOG(trace) << "mmap addr_hint: " << addr_hint << ", length: " << length << ", fd: " << fd_ << ", offset: " << offset << ", ret: " << p;
 
-#ifdef __ARCH_FAM__
-
-// The Machine specific code removed for this distribution
-
-#endif
 
     *mapped_addr = p;
     return kErrorCodeOk;
@@ -150,11 +136,6 @@ ErrorCode LfsRegionFile::unmap(void* addr, size_t length)
         return kErrorCodeMemoryUnmapFailed;
     }
 
-#ifdef __ARCH_FAM__
-
-// The Machine specific code removed for this distribution
-
-#endif
 
     return kErrorCodeOk;
 }

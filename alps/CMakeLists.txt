@@ -1,16 +1,17 @@
-# * (c) Copyright 2016 Hewlett Packard Enterprise Development LP
-# *
-# * Licensed under the Apache License, Version 2.0 (the "License");
-# * you may not use this file except in compliance with the License.
-# * You may obtain a copy of the License at
-# *
-# *     http://www.apache.org/licenses/LICENSE-2.0
-# *
-# * Unless required by applicable law or agreed to in writing, software
-# * distributed under the License is distributed on an "AS IS" BASIS,
-# * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# * See the License for the specific language governing permissions and
-# * limitations under the License.
+# 
+# (c) Copyright 2016 Hewlett Packard Enterprise Development LP
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 
 cmake_minimum_required(VERSION 2.8)
@@ -26,7 +27,10 @@ include(cmake/internal_utils.cmake)
 # compiler flags for all build types
 set(CMAKE_CXX_FLAGS "-std=c++11")
 
-# compiler flags configuration based on build type
+# compiler flags for different build types
+set(CMAKE_CXX_FLAGS_DEBUG "-Wall -O0 -g")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+
 if( NOT CMAKE_BUILD_TYPE )
   set( CMAKE_BUILD_TYPE Debug CACHE STRING
        "Choose the type of build, options are: None Debug Release RelWithDebInfo
@@ -36,9 +40,6 @@ endif()
 
 string(TOUPPER ${CMAKE_BUILD_TYPE} CMAKE_BUILD_TYPE)
 message(STATUS "Configuring build type: ${CMAKE_BUILD_TYPE}")
-
-set(CMAKE_CXX_FLAGS_DEBUG "-Wall -O0 -g")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${CMAKE_BUILD_TYPE}}")
 
@@ -56,13 +57,13 @@ set(TARGETS)
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 # third-party libraries
-#set(GTEST_ROOT ${PROJECT_SOURCE_DIR}/third-party/gtest)
-#set(CMAKE_POSITION_INDEPENDENT_CODE TRUE)
-#add_subdirectory(third-party)
+set(GTEST_ROOT ${PROJECT_SOURCE_DIR}/third-party/gtest)
+set(CMAKE_POSITION_INDEPENDENT_CODE TRUE)
+add_subdirectory(third-party)
 
-#include_directories(${PROJECT_SOURCE_DIR}/third-party/gtest/include)
-#include_directories(${PROJECT_SOURCE_DIR}/third-party/yaml-cpp-0.5.2/include)
-#include_directories(${PROJECT_SOURCE_DIR}/third-party/libbacktrace)
+include_directories(${PROJECT_SOURCE_DIR}/third-party/gtest/include)
+include_directories(${PROJECT_SOURCE_DIR}/third-party/yaml-cpp-0.5.2/include)
+include_directories(${PROJECT_SOURCE_DIR}/third-party/libbacktrace)
 
 # library source 
 add_subdirectory(src)

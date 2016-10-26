@@ -17,9 +17,6 @@
 #include <fcntl.h>
 #include <sys/file.h>
 
-#ifdef __ARCH_FAM__
-#include <fam_atomic.h>
-#endif
 
 #include "common/assorted_func.hh"
 #include "globalheap/layout.hh"
@@ -28,12 +25,9 @@ namespace alps {
 
 
 
-#ifdef __ARCH_FAM__
 
-// The Machine specific code removed for this distribution
 
-#else 
-
+#ifndef __ARCH_FAM__
 RRegion::TPtr<LeaseSuperblock> LeaseSuperblock::make(RRegion::TPtr<LeaseSuperblock> superblock)
 {
     superblock->generation = 1;
@@ -84,6 +78,6 @@ void Lease::unlock()
     __atomic_store_n(&lock, kUnlocked, __ATOMIC_SEQ_CST);
 }
 
-#endif
+#endif // !__ARCH_FAM__
 
 } // namespace alps
