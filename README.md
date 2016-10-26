@@ -24,6 +24,14 @@ The performance enhancements community are:
 
 This collaboration between Hortonworks and Hewlett Packard Labs indicates our mutual support for the growing spark community and solutions. Our ongoing investments will continue to focus on accelerating Spark adoption at scale, integration of Spark into broad data architectures supported by Apache Yarn, enhancements to Spark for performance and better access points for spark application like Apache Zeppelin.
 
+## Quick Start 
+
+In the "docs" directory, the "userguide.pdf" describes how to compile the Spark High-Performance-Computing (HPC) package on a 
+multicore big-memory machine and run the applications, under Spark 2.0.  The "exampleapps.pdf" describes how to run example 
+applications with specific configuration parameters to be added. The "httpserver-fix.pdf" describes the Jetty HTTP server related 
+threading issues on a multicore big-memory machine (e.g., larger than 80 cores) and provides the fix of the issue. 
+
+
 #License
 
     The code in this repository is licensed under the Apache License, Version 2.0 (the "License");
