@@ -29,7 +29,7 @@ This collaboration between Hortonworks and Hewlett Packard Labs indicates our mu
 In the "docs" directory, the "userguide.pdf" describes how to compile the Spark High-Performance-Computing (HPC) package on a 
 multicore big-memory machine and run the applications, under Spark 2.0.  The "exampleapps.pdf" describes how to run example 
 applications with specific configuration parameters to be added. The "httpserver-fix.pdf" describes the Jetty HTTP server related 
-threading issues on a multicore big-memory machine (e.g., larger than 80 cores) and provides the fix of the issue. 
+threading issue on a multicore big-memory machine (e.g., larger than 80 cores) and provides the fix of the issue. 
 
 
 #License
