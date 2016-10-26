@@ -75,20 +75,21 @@ public class ShuffleStoreTracker  {
 	public static class ThreadBasedTracker {
 		//the SimpleEntry has the pair of the map id, and the corresponding reference to MapSHMShuffleStore
 		private  ArrayList <PerThreadShuffleStoreTracker> slots;
-		private int maxNumberOfThreads = -1;
+		private int maxLogicalThreadSlots = -1;
 		
 		/**
 		 * This is invoked when the shuffle store manager is started, as we already know the maximum number
 		 * of concurrent threads
-		 * @param threadSize
+		 * @param maxSlots: maximum number of logical threads corresponding slots,
+		 * in the range of [0, maxSlots-1]
 		 */
-		public  ThreadBasedTracker (int maxNumberOfThreads) {
-			this.maxNumberOfThreads = maxNumberOfThreads; 
+		public  ThreadBasedTracker (int maxSlots) {
+			this.maxLogicalThreadSlots = maxSlots;
 			
 			//Constructs an empty list with the specified initial capacity.
-			this.slots = new ArrayList<PerThreadShuffleStoreTracker>(maxNumberOfThreads);
+			this.slots = new ArrayList<PerThreadShuffleStoreTracker>(maxLogicalThreadSlots);
 			//pre-allocate the list, with each element to hold a null-entry of per-thread-shuffle-store-tracker 
-			for (int i=0; i<maxNumberOfThreads;i++) {
+			for (int i=0; i<maxLogicalThreadSlots;i++) {
 			    this.slots.add(null); 
 			}
 		}
@@ -97,7 +98,7 @@ public class ShuffleStoreTracker  {
 		 * clear all of the map-shufle store being tracker across each thread, and for all the threads. 
 		 */
 		public void clear() {
-			for (int i=0; i<this.maxNumberOfThreads;i++) {
+			for (int i=0; i<this.maxLogicalThreadSlots;i++) {
 				PerThreadShuffleStoreTracker tracker = this.slots.get(i);
 				if (tracker != null) {
 				  tracker.clear();
@@ -107,9 +108,10 @@ public class ShuffleStoreTracker  {
 		}
 		
 		public void add(int logicalThreadId,  MapSHMShuffleStore store) {
-			if ( (logicalThreadId < 0) || (logicalThreadId >=this.maxNumberOfThreads)) {
-				throw new IndexOutOfBoundsException ("logical thread id:  " + logicalThreadId 
-						+ " not in range of: (0, " + this.maxNumberOfThreads + ")");
+			if ( (logicalThreadId < 0) || (logicalThreadId >=this.maxLogicalThreadSlots)) {
+				//let it fails, as we already anticipate some tolerable number of failed threads.
+				throw new IndexOutOfBoundsException ("logical thread id:  " + logicalThreadId
+						+ " not in range of: (0, " + this.maxLogicalThreadSlots + ")");
 			}
 			
 			PerThreadShuffleStoreTracker perThreadTracker = this.slots.get(logicalThreadId);
@@ -125,7 +127,7 @@ public class ShuffleStoreTracker  {
 		
 		public ArrayList<MapSHMShuffleStore> gatherShuffleStore() {
 			ArrayList<MapSHMShuffleStore> retrievedStore = new ArrayList<MapSHMShuffleStore>();
-			for (int i=0; i<this.maxNumberOfThreads; i++) {
+			for (int i=0; i<this.maxLogicalThreadSlots; i++) {
 				PerThreadShuffleStoreTracker tracker = this.slots.get(i);
 				if ( (tracker != null) && (tracker.size() > 0)){
 					tracker.gatherShuffleStore(retrievedStore);
@@ -141,14 +143,18 @@ public class ShuffleStoreTracker  {
 	private ConcurrentHashMap<Integer, ThreadBasedTracker> shuffleTracker; 
 	
 	//for each  thread based tracker, how many per-thread-shuffle-store-tracker it can be put. 
-	private int maxNumberOfThreads = -1; 
-	
-	
-    /**
-     * per executor 
+	private int maxNumberOfThreads = -1;
+
+
+	//to tolerate three number of threads to fail.
+	private final static int FACTOR_OF_TOLERABLE_FAILED_THREADS = 2;
+    
+	/**
+     * per executor. To anticipate some task execution failure that the per-thread resource (in this case,
+	 * the logical thread id), did not return correctly to shuffle resource tracker.
      */
     public ShuffleStoreTracker (int maxNumberOfThreads) {
-          this.maxNumberOfThreads = maxNumberOfThreads; 
+          this.maxNumberOfThreads = FACTOR_OF_TOLERABLE_FAILED_THREADS* maxNumberOfThreads;
           this.shuffleTracker = new ConcurrentHashMap<Integer, ThreadBasedTracker>();
     }
 

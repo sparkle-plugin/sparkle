@@ -1,0 +1,8 @@
+run: 
+
+ . ./load_ldpath.sh
+
+to allow the LD_LIBRARY_PATH to be updated with the shm shared library compiled in the corresponding source directory.
+
+HPL
+06/03/2015

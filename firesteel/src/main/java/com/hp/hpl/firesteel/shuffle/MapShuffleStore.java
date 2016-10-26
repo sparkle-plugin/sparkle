@@ -17,12 +17,7 @@
 
 package com.hp.hpl.firesteel.shuffle;
 
-import java.nio.ByteBuffer;
-import java.util.List;
-import java.util.ArrayList;
-
 /**
- * Created by junli on 4/29/2015.
  * to allow the Map task to store the serialized data records from Java into the C++ shuffle
  * engine, along with the partitioner number assigned for each (k,v) pair
  */
@@ -57,89 +52,35 @@ public interface MapShuffleStore {
          */
          void shutdown();
 
-        /**
-         * to serialize the (K,V) pairs  into the byte buffer, and record the offests in the byte
-         * buffer for each K values and V values. Both K and V will be serialized
-         *
-         * @param kvalues the array of the K values
-         * @param vvalues the array of the V values
-         * @param numberOfPairs the size of the array of (K,V) pairs
-         * the result is in koffests,  the array that records each offset of the K values serialized in the
-         *                  byte buffer
-         * the result is in voffsets, the array that records each offset of the V values serialized in the
-         *                 byte byffer
-         */
-         void serializeKVPairs ( ArrayList<Object> kvalues, ArrayList<Object> vvalues, int numberOfPairs);
 
         /**
-         * to store serialized (K,V) pairs stored in the byte buffer, into the C++ shared-memory
-         * region
-         * combined with private member: koffsets the offests for the K values
-         * combined with private member: voffests the offsets for the V values
-         * @param partitions the partition number computed by the partitioner function for each
-         *                  (K,V) pair
-         * @param numberOfPairs the size of the (K,V) pairs that have been serialized and to be
+         * to serialize the (K,V) pair that have the K values to be with type of
+         * int, float, long, string that are supported by  C++, along with value that has arbitrary type.
+         * @param kvalue key's value
+         * @param vvalue the Value
+         * @param partitionId the partition id corresponding to the key based on partitioning strategy.
+         * @indexPosition the position of the (K,V) pair in the batch of map-side processing.
+         * 
+         * @param scode the key's type code: int, long, float, double, string, byte-array, object. 
          */
-         void storeKVPairs(ArrayList<Integer> partitions, int numberOfPairs);
-
-
-        /**
-         * to serialize the V values for the(K,V) pairs that have the K values to be with type of
-         * int, float, long, string that are supported by  C++.
-         * @param vvalues the V values
-         * then store in private member: voffsets the array that records each offset of the V values 
-         * serialized in the byte buffer
-         * @param numberOfVs the size of the array of (K,V) pairs
-         */
-         void serializeVs (ArrayList<Object> vvalues, int numberOfVs);
+         void serializeKVPair (Object kvalue, Object vvalue, int partitionId, int indexPosition, int scode);
 
 
          /**
-          * Speical case: to store the (K,V) pairs that have the K values to be with type of float
-          * combined with private member: voffsets
-          * @param kvalues
-          * @param partitions
-          * @param numberOfPairs
+          * To store the (K,V) pairs that have the K values to be with key type of:
+          * Int, long, float, double, string, byte-array, object, and the value that is with arbitrary type.
+          *
+          * @param numberOfPairs the number of <K,V> pairs that gets stored in the current batch
+          * @param scode: the type code of the key: int, long, float, double, string, byte-array, and object
           */
-         void storeKVPairsWithIntKeys (ArrayList<Integer> kvalues,
-        		                             ArrayList<Integer> partitions, int numberOfPairs);
-
-        /**
-         * Speical case: to store the (K,V) pairs that have the K values to be with type of float
-         * combined with private member: voffsets
-         * @param kvalues
-         * @param partitions
-         * @param numberOfPairs
-         */
-         void storeKVPairsWithFloatKeys (ArrayList<Float> kvalues, 
-        		                            ArrayList<Integer> partitions, int numberOfPairs);
+         void storeKVPairs (int numberOfPairs, int scode);
 
 
         /**
-         * Special case: to store the (K,V) pairs that have the K values to be with type of long
-         * combined with private member: voffsets
-         * @param kvalues
-         * @param partitions
-         * @param numberOfPairs
+         * to sort and store the sorted data into non-volatile memory that is ready for  the reducer
+         * to fetch
+         * @return status information that represents the map processing status
          */
-        void storeKVPairsWithLongKeys (ArrayList<Long> kvalues, 
-        		                          ArrayList<Integer> partitions, int numberOfPairs);
-
-        /**
-         * Special case: To serialize the (K,V) pairs that have the K values to be with type of string
-         * combined with private member: voffsets
-         * @param kvalues
-         * @param partitions
-         * @param numberOfPairs
-         */
-        void storeKVPairsWithStringKeys (ArrayList<String> kvalues, 
-        		                             ArrayList<Integer> partitions, int numberOfPairs);
-
-         /**
-          * to sort and store the sorted data into non-volatile memory that is ready for  the reduder
-          * to fetch
-          * @return status information that represents the map processing status
-          */
          ShuffleDataModel.MapStatus sortAndStore();
 
         /**

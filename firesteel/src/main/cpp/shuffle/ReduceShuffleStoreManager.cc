@@ -20,11 +20,81 @@
 #include "ReduceShuffleStoreManager.h"
 #include "ReduceShuffleStoreWithIntKeys.h"
 #include "ReduceShuffleStoreWithLongKeys.h"
-#include "ReduceShuffleStoreWithStringKeys.h"
+#include "ReduceShuffleStoreWithByteArrayKeys.h"
 
 void ReduceShuffleStoreManager::obtain_kv_definition (MapBucket &mapBucket, int rId, int rPartitions,
 	     KValueTypeDefinition &kd, VValueTypeDefinition &vd){
   MergeSortChannelHelper::obtain_kv_definition(mapBucket, rId, rPartitions, kd, vd);
+}
+
+
+GenericReduceShuffleStore* ReduceShuffleStoreManager::createStore(int shuffleId,
+                           int reducerId, 
+			   const ReduceStatus &status, int partitions, 
+                           ExtensibleByteBuffers *kBMgr, ExtensibleByteBuffers *vBMgr, 
+		           unsigned char *passThroughBuffer, size_t buff_capacity,
+			   enum KValueTypeId tid, 
+                           bool ordering, bool aggregation){
+
+    GenericReduceShuffleStore  *store=nullptr;
+    switch (tid) {
+        case KValueTypeId::Int: 
+          {
+	    LOG(FATAL) << "int key reduce shuffle store can not be created via this method";
+            break;
+	  }
+         case KValueTypeId::Long:
+          {
+	     LOG(FATAL) << "long key reduce shuffle store can not be created via this method";
+	     break;
+          } 
+
+         case KValueTypeId::Float:
+          {
+	       LOG(FATAL) << "long key reduce shuffle store can not be created via this method"; 
+	       break;
+          } 
+
+         case KValueTypeId::Double:
+          {
+	       LOG(FATAL) << "long key reduce shuffle store can not be created via this method" ;
+	       break;
+          } 
+
+         case KValueTypeId::String:
+          {
+     	       //to be implemented.
+	       break;
+          } 
+
+         case KValueTypeId::ByteArray:
+          {
+	    store = (GenericReduceShuffleStore*)
+		 new ReduceShuffleStoreWithByteArrayKey(status, partitions, reducerId, 
+		      kBMgr,vBMgr,
+                      passThroughBuffer, buff_capacity, ordering, aggregation);
+            LOG(INFO) << "create bytearray-key reduce shuffle store with shuffle id:" << shuffleId 
+			 << " passthrough buffer: " << (void*)passThroughBuffer 
+                         << " with buffer capacity: " << buff_capacity 
+			 << " reducer id: " << reducerId << " with ordering: " << ordering
+                         << " and with aggregation: " << aggregation << endl;
+
+	    break;
+          } 
+
+         case KValueTypeId::Object:
+          {
+     	       //to be implemented.
+	       break;
+          } 
+
+         case KValueTypeId::Unknown:
+          {
+	       break;
+          } 
+    }
+
+    return store;
 }
 
 
@@ -80,6 +150,12 @@ GenericReduceShuffleStore* ReduceShuffleStoreManager::createStore(int shuffleId,
           {
      	       //to be implemented.
 	       break;
+          } 
+
+         case KValueTypeId::ByteArray:
+          {
+	    LOG(FATAL) << "byte-array key shuffle store can not be created in  this method";
+	    break;
           } 
 
          case KValueTypeId::Object:

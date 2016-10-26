@@ -17,6 +17,7 @@
 
 package org.apache.spark.shuffle.shm
 
+import  org.apache.spark.shuffle.shm.ShmShuffleWithMultiValues._
 import org.scalatest.FunSuite
 
 import org.apache.spark.{SparkEnv, SparkContext, LocalSparkContext, SparkConf}

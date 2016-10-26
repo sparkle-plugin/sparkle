@@ -20,8 +20,6 @@ package com.hp.hpl.firesteel.shuffle.simulated;
 import com.hp.hpl.firesteel.shuffle.ShuffleDataModel;
 
 import com.esotericsoftware.kryo.Kryo;
-import com.hp.hpl.firesteel.shuffle.MapSHMShuffleStore;
-import com.hp.hpl.firesteel.shuffle.ReduceSHMShuffleStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,7 +28,6 @@ import java.nio.ByteBuffer;
 
 /**
  * Simulated Shuffle Store Manager. For unit testing purpose.
- * Jun Li, 5/23/2015.
  */
 public class SimulatedShuffleStoreManager {
 

@@ -18,11 +18,8 @@
 package com.hp.hpl.firesteel.shuffle;
 
 import com.esotericsoftware.kryo.Kryo;
-//NOTE: this class only exists on Kryo.3.0.0, not the version that Spark 1.2.0 depends on
-//(via Chill 0.5.0)
 import com.esotericsoftware.kryo.io.ByteBufferOutput;
 import com.esotericsoftware.kryo.io.ByteBufferInput;
-import java.util.Arrays;
 import java.nio.ByteBuffer;
 
 import org.slf4j.Logger;
@@ -32,9 +29,6 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Created by junli on 5/13/2015.
- */
 public class ReduceSHMShuffleStore implements ReduceShuffleStore {
     private static final Logger LOG=LoggerFactory.getLogger(ReduceSHMShuffleStore.class.getName());
 
@@ -72,6 +66,15 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
 
         public Class readClass() {
             return (this.kryo.readClass(this.input).getType());
+        }
+
+        /**
+         * direct read the specified bytes from the underlying input buffer. 
+         * @param val the buffer to be filled with the de-serialized bytes.
+         * @return the number of the bytes that get read. 
+         */
+        public int directRead(byte[] val) {
+        	return (this.input.read (val));
         }
 
         /**
@@ -143,6 +146,20 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
     public void stop() {
         LOG.info("store id " + this.storeId + " reduce-side shared-memory based shuffle store stopped with id:"
                 + this.shuffleId + "-" + this.reduceId);
+        
+        //to return shuffle related resource back to the tracker. 
+        //ThreadLocalShuffleResourceHolder holder = new ThreadLocalShuffleResourceHolder();
+        //ThreadLocalShuffleResourceHolder.ShuffleResource resource = holder.getResource();
+        //if (resource != null) {
+           //return it to the shuffle resource tracker
+	//  this.shuffleStoreManager.getShuffleResourceTracker().recycleSerializationResource(resource);
+        //}
+        //else {
+	// LOG.info("store id " + this.storeId + " reduce-side shared-memory based shuffle store stopped with id:"
+	//	    + this.shuffleId + "-" + this.reduceId + " has re-usable shuffle resource == null");
+	//}
+        
+        //then return the native resources as well. 
         nstop(this.pointerToStore);
     }
 
@@ -187,7 +204,7 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
         int totalBuckets = statuses.getMapIds().length;
         this.pointerToStore = nmergeSort(this.shuffleStoreManager.getPointer(), shuffleId, reduceId,
                                    statuses, totalBuckets, this.numberOfPartitions, this.byteBuffer,
-                this.byteBuffer.capacity(), this.ordering, this.aggregation);
+                                   this.byteBuffer.capacity(), this.ordering, this.aggregation);
     }
 
     /**
@@ -227,6 +244,9 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
        }
        else if (val == ShuffleDataModel.KValueTypeId.String.state){
            return ShuffleDataModel.KValueTypeId.String;
+       }
+       else if (val == ShuffleDataModel.KValueTypeId.ByteArray.state){
+           return ShuffleDataModel.KValueTypeId.ByteArray;
        }
        else if (val ==  ShuffleDataModel.KValueTypeId.Object.state){
            return ShuffleDataModel.KValueTypeId.Object;
@@ -699,6 +719,124 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
             ByteBuffer byteBuffer, int buffer_capacity, 
             int knumbers, ShuffleDataModel.MergeSortedResult mergeResult);
     
+
+    @Override
+    public int getKVPairsWithByteArrayKeys (
+                         ArrayList<byte[]> kvalues, ArrayList<ArrayList<Object>> vvalues, int knumbers){
+        ShuffleDataModel.MergeSortedResult mergeResult = new ShuffleDataModel.MergeSortedResult();
+
+        boolean bufferExceeded = mergeResult.getBufferExceeded();
+        if (bufferExceeded) {
+            LOG.error( "store id " + this.storeId +
+                    " deserialization buffer for shm shuffle reducer is exceeded; need to configure a bigger one");
+            return 0;
+        }
+
+        this.deserializer.init();
+        int actualKVPairs = nGetKVPairsWithByteArrayKeys(this.pointerToStore,
+                this.deserializer.getByteBuffer(), this.byteBuffer.capacity(), knumbers, mergeResult);
+
+        int pkOffsets[] = mergeResult.getKoffsets();
+        int pVOffsets[] = mergeResult.getVoffsets(); //offset to each group of {vp,1, vp,2...,vp,k}.
+
+        ByteBuffer populatedByteBuffer = this.deserializer.getByteBuffer();
+        //then populate back to the list the key values.
+        for (int i=0; i<actualKVPairs; i++){
+            int lengthOfKValue = 0;
+            if (i==0) {
+                lengthOfKValue = pkOffsets[i];
+            }
+            else {
+                lengthOfKValue = pkOffsets[i] - pVOffsets[i-1];
+            }
+
+            byte[] kvalue = new byte[lengthOfKValue];
+
+            this.deserializer.directRead(kvalue);
+            kvalues.set(i, kvalue);
+            
+            //the corresponding value pairs
+            ArrayList<Object> holder = new ArrayList<Object>();
+            {
+                //after K, bytebuffer holds the values.
+                //the start position is pKoffsets[i], which has been advanced from the "get" above.
+                int endPosition = pVOffsets[i];
+                while ( populatedByteBuffer.position() < endPosition){
+                    Object p = this.deserializer.readObject();//readClassObject at this time.
+                    holder.add(p);
+                }
+            }
+
+            vvalues.set(i, holder);
+        }
+        this.deserializer.close();
+
+        return actualKVPairs;
+    }
+
+    private native int nGetKVPairsWithByteArrayKeys(long pointerToStore,
+                                                 ByteBuffer byteBuffer, int buffer_capacity,
+                                                 int knumbers, ShuffleDataModel.MergeSortedResult mergeResult);
+
+    @Override
+    public int getSimpleKVPairsWithByteArrayKeys (
+                                     ArrayList<byte[]> kvalues, ArrayList<Object> values, int knumbers) {
+        ShuffleDataModel.MergeSortedResult mergeResult = new ShuffleDataModel.MergeSortedResult();
+
+        boolean bufferExceeded = mergeResult.getBufferExceeded();
+        if (bufferExceeded) {
+            LOG.error( "store id " + this.storeId +
+                    " deserialization buffer for shm shuffle reducer is exceeded; need to configure a bigger one");
+            return 0;
+        }
+
+        this.deserializer.init();
+        int actualKVPairs = nGetSimpleKVPairsWithByteArrayKeys(this.pointerToStore,
+                this.deserializer.getByteBuffer(), this.byteBuffer.capacity(), knumbers, mergeResult);
+
+        int pkOffsets[] = mergeResult.getKoffsets();
+        int pVOffsets[] = mergeResult.getVoffsets();
+
+        //then populate back to the list the key values.
+        ByteBuffer populatedByteBuffer = this.deserializer.getByteBuffer();
+        for (int i=0; i<actualKVPairs; i++){
+            int lengthOfKValue = 0;
+            if (i==0) {
+                lengthOfKValue = pkOffsets[i];
+            }
+            else {
+                lengthOfKValue = pkOffsets[i] - pVOffsets[i-1];
+            }
+
+            byte[] kvalue = new byte[lengthOfKValue];
+            //the buffer position will automatically advance with lengthOfKValue.
+            this.deserializer.directRead (kvalue);
+            kvalues.set(i, kvalue);
+            //the corresponding value pairs
+            Object p = null;
+            {
+                //after K, bytebuffer holds the values.
+                //the start position is pKoffsets[i], which has been advanced from the "get" above.
+                int endPosition = pVOffsets[i];
+                if ( populatedByteBuffer.position() < endPosition){
+                    p = this.deserializer.readObject();//readClassObject at this time.
+                }
+                else {
+                    throw new RuntimeException ("deserializer cannot de-serialize object following the offset boundary");
+                }
+            }
+
+            values.set(i, p);
+        }
+        this.deserializer.close();
+
+        return actualKVPairs;
+    }
+
+    private native int nGetSimpleKVPairsWithByteArrayKeys(long pointerToStore,
+                                                 ByteBuffer byteBuffer, int buffer_capacity,
+                                                 int knumbers, ShuffleDataModel.MergeSortedResult mergeResult);
+
     @Override
     public int getKVPairsWithStringKeys (ArrayList<String> kvalues, ArrayList<ArrayList<Object>> vvalues, int knumbers){
         ShuffleDataModel.MergeSortedResult mergeResult = new ShuffleDataModel.MergeSortedResult();
@@ -781,5 +919,20 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
     @Override
     public int getStoreId() {
     	return this.storeId; 
+    }
+    
+    
+    private static final String HEXES = "0123456789ABCDEF";
+
+    public static String getHex( byte [] raw ) {
+        if ( raw == null ) {
+            return null;
+        }
+        final StringBuilder hex = new StringBuilder( 2 * raw.length );
+        for ( final byte b : raw ) {
+            hex.append(HEXES.charAt((b & 0xF0) >> 4))
+                    .append(HEXES.charAt((b & 0x0F))).append(" ");
+        }
+        return hex.toString();
     }
 }

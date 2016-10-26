@@ -23,6 +23,8 @@
 #include "MapShuffleStoreWithStringKeys.h"
 #include "MapShuffleStoreWithIntKeys.h"
 #include "MapShuffleStoreWithLongKeys.h"
+#include "MapShuffleStoreWithByteArrayKeys.h"
+
 
 GenericMapShuffleStore* MapShuffleStoreManager::createStore(int shuffleId, int id, 
                                            enum KValueTypeId tid, bool ordering) {
@@ -61,6 +63,15 @@ GenericMapShuffleStore* MapShuffleStoreManager::createStore(int shuffleId, int i
              //need to be done
             break;
           }
+
+          case KValueTypeId::ByteArray:
+          {
+            store =(GenericMapShuffleStore*)( new MapShuffleStoreWithByteArrayKey(id, ordering));
+            LOG(INFO) << "create bytearray-key map shuffle store with shuffle id:" << shuffleId 
+		      << " map id: " << id << " and ordering: " << ordering << endl;
+             //need to be done
+            break;
+          }
           
           case KValueTypeId::Object: {
  	    LOG(ERROR)  << "Not Implemented Yet" <<endl;
@@ -76,6 +87,10 @@ GenericMapShuffleStore* MapShuffleStoreManager::createStore(int shuffleId, int i
      return store;        
 }
 
+
+void MapShuffleStoreManager::stopShuffleStore (GenericMapShuffleStore *store){
+  store->stop();
+} 
 
 void MapShuffleStoreManager::shutdownShuffleStore (GenericMapShuffleStore *store){
   store->shutdown();

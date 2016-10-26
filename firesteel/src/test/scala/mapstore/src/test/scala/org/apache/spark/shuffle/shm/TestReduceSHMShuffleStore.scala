@@ -23,9 +23,13 @@ import java.nio.ByteBuffer
 import org.apache.spark.LocalSparkContext
 import org.apache.spark.serializer.KryoSerializer
 import org.scalatest.FunSuite
-import org.apache.spark.{SparkEnv, SparkContext, LocalSparkContext, SparkConf, Logging}
+import org.apache.spark.{SparkEnv, SparkContext, LocalSparkContext, SparkConf}
+import org.apache.spark.internal.Logging
 import org.apache.spark.serializer._
 import com.hp.hpl.firesteel.shuffle._
+import com.hp.hpl.firesteel.shuffle.ShuffleDataModel.KValueTypeId
+import com.hp.hpl.firesteel.shuffle.ShuffleDataModel.KValueTypeId._
+import com.hp.hpl.firesteel.shuffle.ThreadLocalShuffleResourceHolder._
 import com.esotericsoftware.kryo.Kryo
 import org.apache.spark.serializer._
 import org.scalatest.FunSuite
@@ -33,26 +37,48 @@ import org.scalatest.FunSuite
 import scala.collection.mutable.ArrayBuffer
 import java.util.ArrayList
 
-/**
- * Created by junli on 7/24/2015.
- */
 
 class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Logging {
 
   private def getThreadLocalShuffleResource(conf: SparkConf):
   ThreadLocalShuffleResourceHolder.ShuffleResource = {
-    val SERIALIZATION_BUFFER_SIZE: Int =
-      conf.getInt("spark.shuffle.shm.serializer.buffer.max.mb", 64) * 1024 * 1024;
-    val resourceHolder = new ThreadLocalShuffleResourceHolder()
-    var shuffleResource = resourceHolder.getResource()
-    if (shuffleResource == null) {
-      val kryoInstance = new KryoSerializer(SparkEnv.get.conf).newKryo();
-      //per-thread
-      val serializationBuffer = ByteBuffer.allocateDirect(SERIALIZATION_BUFFER_SIZE)
-      resourceHolder.initilaze(kryoInstance, serializationBuffer)
-      shuffleResource = resourceHolder.getResource()
-    }
-    shuffleResource
+       val SERIALIZATION_BUFFER_SIZE: Int =
+         conf.getInt("spark.shuffle.shm.serializer.buffer.max.mb", 64) * 1024 * 1024;
+
+       val resourceHolder= new ThreadLocalShuffleResourceHolder()
+       var shuffleResource =
+           ShuffleStoreManager.INSTANCE.getShuffleResourceTracker.getIdleResource()
+
+       if (shuffleResource == null) {
+          //still at the early thread launching phase for the executor, so create new resource
+          val kryoInstance =  new KryoSerializer(SparkEnv.get.conf).newKryo(); //per-thread
+          val serializationBuffer = ByteBuffer.allocateDirect(SERIALIZATION_BUFFER_SIZE)
+          if (serializationBuffer.capacity() != SERIALIZATION_BUFFER_SIZE ) {
+            logError("Thread: " + Thread.currentThread().getId
+              + " created serialization buffer with size: "
+              + serializationBuffer.capacity()
+              + ": FAILED to match: " + SERIALIZATION_BUFFER_SIZE)
+          }
+          else {
+            logInfo("Thread: " + + Thread.currentThread().getId
+              + " created the serialization buffer with size: "
+              + SERIALIZATION_BUFFER_SIZE + ": SUCCESS")
+          }
+          //add a logical thread id
+          val logicalThreadId = ShuffleStoreManager.INSTANCE.getlogicalThreadCounter ()
+          shuffleResource = new ShuffleResource(
+              new ReusableSerializationResource (kryoInstance, serializationBuffer),
+              logicalThreadId)
+          //add to the resource pool
+          ShuffleStoreManager.INSTANCE.getShuffleResourceTracker.addNewResource(shuffleResource)
+          //push to the thread specific storage for future retrieval in the same task execution.
+          resourceHolder.initialize (shuffleResource)
+
+          logDebug ("Thread: " + Thread.currentThread().getId
+            + " create kryo-bytebuffer resource for mapper writer")
+       }
+
+       shuffleResource
   }
 
   ignore ("reduceId 0 with class registration") {
@@ -69,7 +95,8 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
     val shuffleManager = SparkEnv.get.shuffleManager
     assert(shuffleManager.isInstanceOf[ShmShuffleManager])
 
-    ShuffleStoreManager.INSTANCE.initialize()
+    ShuffleStoreManager.INSTANCE.initialize(
+           TestConstants.GLOBAL_HEAP_NAME, TestConstants.maxNumberOfTaskThreads, 0)
     val  nativePointer = ShuffleStoreManager.INSTANCE.getPointer()
     logInfo ("native pointer of shuffle store manager retrieved is:"
       + "0x"+ java.lang.Long.toHexString(nativePointer))
@@ -82,16 +109,25 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
 
     val threadLocalResources = getThreadLocalShuffleResource(conf)
 
+    val logicalThreadId =  ShuffleStoreManager.INSTANCE.getlogicalThreadCounter()
+    val ordering = true
+
     val mapSHMShuffleStore =
-      ShuffleStoreManager.INSTANCE.createMapShuffleStore(threadLocalResources.getKryoInstance,
-        threadLocalResources.getByteBuffer,
-        shuffleId, mapId, numberOfPartitions, keyType)
+      ShuffleStoreManager.INSTANCE.createMapShuffleStore(
+        threadLocalResources.getSerializationResource.getKryoInstance,
+        threadLocalResources.getSerializationResource.getByteBuffer,
+        logicalThreadId,
+        shuffleId, mapId, numberOfPartitions, keyType,
+        TestConstants.SIZE_OF_BATCH_SERIALIZATION, 
+        ordering
+        )
 
     val reduceId = 0
     val reduceSHMShuffleStore =
       ShuffleStoreManager.INSTANCE.createReduceShuffleStore(
-                      threadLocalResources.getKryoInstance, threadLocalResources.getByteBuffer,
-        shuffleId, reduceId, numberOfPartitions)
+          threadLocalResources.getSerializationResource.getKryoInstance,
+          threadLocalResources.getSerializationResource.getByteBuffer,
+        shuffleId, reduceId, numberOfPartitions, ordering, true)
 
     var mapStatusResult = null.asInstanceOf[ShuffleDataModel.MapStatus]
 
@@ -109,40 +145,35 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
       kvalues.add (i)
     }
 
-      //serializeVs (ArrayList<Object> vvalues, ArrayList<Integer> voffsets, int numberOfVs)
-      mapSHMShuffleStore.serializeVs(testObjects.asInstanceOf[ArrayList[Object]],
-        voffsets.asInstanceOf[ArrayList[Integer]], numberOfVs)
-      //before storeKVpairs, the Value Type needs to be stored already.
-      mapSHMShuffleStore.storeVValueType(testObjects.get(0))
-      // storeKVPairsWithIntKeys (ArrayList<Integer> voffsets,
-      //ArrayList<Integer> kvalues, ArrayList<Integer> partitions, int numberOfPairs)
-      val numberOfPairs = numberOfVs
-      mapSHMShuffleStore.storeKVPairsWithIntKeys(voffsets.asInstanceOf[ArrayList[Integer]],
-        kvalues.asInstanceOf[ArrayList[Integer]],
-        partitions.asInstanceOf[ArrayList[Integer]],
-        numberOfPairs)
+    for (i <- 0 to numberOfVs-1) {
+      mapSHMShuffleStore.serializeKVPair(kvalues.get(i), testObjects.get(i),partitions.get(i),
+                                            i, KValueTypeId.Int.getState())
+    }
 
-      mapStatusResult = mapSHMShuffleStore.sortAndStore()
+    val numberOfPairs = numberOfVs;
+    mapSHMShuffleStore.storeKVPairs(numberOfPairs, KValueTypeId.Int.getState())
 
-      logInfo("map status region name: " + mapStatusResult.getShmRegionName())
-      logInfo ("map status offset to index chunk: 0x "
-        + java.lang.Long.toHexString(mapStatusResult.getOffsetToIndexBucket()))
-      val buckets = mapStatusResult.getMapStatus()
+    mapStatusResult = mapSHMShuffleStore.sortAndStore()
 
-      if (buckets != null) {
+    logInfo("map status region id: " + mapStatusResult.getRegionIdOfIndexBucket())
+    logInfo ("map status offset to index chunk: 0x "
+        + java.lang.Long.toHexString(mapStatusResult.getOffsetOfIndexBucket()))
+    val buckets = mapStatusResult.getMapStatus()
+
+    if (buckets != null) {
         for (i <- 0 to buckets.length-1) {
           logInfo ("map status, bucket: " + i + " has size: " + buckets(i))
         }
-      }
-      else {
+    }
+    else {
         logInfo("map status buckets length is null.")
-      }
+    }
 
     //reduce side:
-    reduceSHMShuffleStore.initialize(shuffleId, reduceId, numberOfPartitions)
+    reduceSHMShuffleStore.initialize(shuffleId, reduceId, numberOfPartitions, ordering, true)
     val mapIds = Seq (mapId).toArray
-    val shmRegionNames = Seq (mapStatusResult.getShmRegionName()).toArray
-    val offsetToIndexChunks = Seq (mapStatusResult.getOffsetToIndexBucket()).toArray
+    val shmRegionNames = Seq (mapStatusResult.getRegionIdOfIndexBucket()).toArray
+    val offsetToIndexChunks = Seq (mapStatusResult.getOffsetOfIndexBucket()).toArray
     val sizes = Seq (mapStatusResult.getMapStatus()(reduceId)).toArray //pick the first bucket
 
     val statuses =
@@ -220,7 +251,8 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
     val shuffleManager = SparkEnv.get.shuffleManager
     assert(shuffleManager.isInstanceOf[ShmShuffleManager])
 
-    ShuffleStoreManager.INSTANCE.initialize()
+    ShuffleStoreManager.INSTANCE.initialize(
+         TestConstants.GLOBAL_HEAP_NAME, TestConstants.maxNumberOfTaskThreads, 0)
     val  nativePointer = ShuffleStoreManager.INSTANCE.getPointer()
     logInfo ("native pointer of shuffle store manager retrieved is:"
       + "0x"+ java.lang.Long.toHexString(nativePointer))
@@ -233,16 +265,24 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
 
     val threadLocalResources = getThreadLocalShuffleResource(conf)
 
+    val logicalThreadId =  ShuffleStoreManager.INSTANCE.getlogicalThreadCounter()
+    val ordering = true
     val mapSHMShuffleStore =
-      ShuffleStoreManager.INSTANCE.createMapShuffleStore(threadLocalResources.getKryoInstance,
-        threadLocalResources.getByteBuffer,
-        shuffleId, mapId, numberOfPartitions, keyType)
+      ShuffleStoreManager.INSTANCE.createMapShuffleStore(
+        threadLocalResources.getSerializationResource.getKryoInstance,
+        threadLocalResources.getSerializationResource.getByteBuffer,
+        logicalThreadId, 
+        shuffleId, mapId, numberOfPartitions, keyType,
+        TestConstants.SIZE_OF_BATCH_SERIALIZATION, 
+        ordering
+        )
 
     val reduceId = 0
     val reduceSHMShuffleStore =
       ShuffleStoreManager.INSTANCE.createReduceShuffleStore(
-        threadLocalResources.getKryoInstance, threadLocalResources.getByteBuffer,
-        shuffleId, reduceId, numberOfPartitions)
+        threadLocalResources.getSerializationResource.getKryoInstance, 
+        threadLocalResources.getSerializationResource.getByteBuffer,
+        shuffleId, reduceId, numberOfPartitions, ordering, true)
 
     var mapStatusResult = null.asInstanceOf[ShuffleDataModel.MapStatus]
 
@@ -260,24 +300,20 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
       kvalues.add (i)
     }
 
-    //serializeVs (ArrayList<Object> vvalues, ArrayList<Integer> voffsets, int numberOfVs)
-    mapSHMShuffleStore.serializeVs(testObjects.asInstanceOf[ArrayList[Object]],
-      voffsets.asInstanceOf[ArrayList[Integer]], numberOfVs)
-    //before storeKVpairs, the Value Type needs to be stored already.
-    mapSHMShuffleStore.storeVValueType(testObjects.get(0))
-    // storeKVPairsWithIntKeys (ArrayList<Integer> voffsets,
-    //ArrayList<Integer> kvalues, ArrayList<Integer> partitions, int numberOfPairs)
-    val numberOfPairs = numberOfVs
-    mapSHMShuffleStore.storeKVPairsWithIntKeys(voffsets.asInstanceOf[ArrayList[Integer]],
-      kvalues.asInstanceOf[ArrayList[Integer]],
-      partitions.asInstanceOf[ArrayList[Integer]],
-      numberOfPairs)
+
+    for (i <- 0 to numberOfVs-1) {
+      mapSHMShuffleStore.serializeKVPair(kvalues.get(i), testObjects.get(i),partitions.get(i),
+                                            i, KValueTypeId.Int.getState())
+    }
+
+    val numberOfPairs = numberOfVs;
+    mapSHMShuffleStore.storeKVPairs(numberOfPairs, KValueTypeId.Int.getState())
 
     mapStatusResult = mapSHMShuffleStore.sortAndStore()
 
-    logInfo("map status region name: " + mapStatusResult.getShmRegionName())
+    logInfo("map status region id: " + mapStatusResult.getRegionIdOfIndexBucket())
     logInfo ("map status offset to index chunk: 0x "
-      + java.lang.Long.toHexString(mapStatusResult.getOffsetToIndexBucket()))
+      + java.lang.Long.toHexString(mapStatusResult.getOffsetOfIndexBucket()))
     val buckets = mapStatusResult.getMapStatus()
 
     if (buckets != null) {
@@ -290,10 +326,10 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
     }
 
     //reduce side:
-    reduceSHMShuffleStore.initialize(shuffleId, reduceId, numberOfPartitions)
+    reduceSHMShuffleStore.initialize(shuffleId, reduceId, numberOfPartitions, ordering, true)
     val mapIds = Seq (mapId).toArray
-    val shmRegionNames = Seq (mapStatusResult.getShmRegionName()).toArray
-    val offsetToIndexChunks = Seq (mapStatusResult.getOffsetToIndexBucket()).toArray
+    val shmRegionNames = Seq (mapStatusResult.getRegionIdOfIndexBucket()).toArray
+    val offsetToIndexChunks = Seq (mapStatusResult.getOffsetOfIndexBucket()).toArray
     val sizes = Seq (mapStatusResult.getMapStatus()(reduceId)).toArray //pick the first bucket
 
     val statuses =
@@ -371,7 +407,8 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
     val shuffleManager = SparkEnv.get.shuffleManager
     assert(shuffleManager.isInstanceOf[ShmShuffleManager])
 
-    ShuffleStoreManager.INSTANCE.initialize()
+    ShuffleStoreManager.INSTANCE.initialize(
+           TestConstants.GLOBAL_HEAP_NAME, TestConstants.maxNumberOfTaskThreads, 0)
     val  nativePointer = ShuffleStoreManager.INSTANCE.getPointer()
     logInfo ("native pointer of shuffle store manager retrieved is:"
       + "0x"+ java.lang.Long.toHexString(nativePointer))
@@ -384,16 +421,24 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
 
     val threadLocalResources = getThreadLocalShuffleResource(conf)
 
+    val logicalThreadId =  ShuffleStoreManager.INSTANCE.getlogicalThreadCounter()
+    val ordering = true
+
     val mapSHMShuffleStore =
-      ShuffleStoreManager.INSTANCE.createMapShuffleStore(threadLocalResources.getKryoInstance,
-        threadLocalResources.getByteBuffer,
-        shuffleId, mapId, numberOfPartitions, keyType)
+      ShuffleStoreManager.INSTANCE.createMapShuffleStore(
+        threadLocalResources.getSerializationResource.getKryoInstance,
+        threadLocalResources.getSerializationResource.getByteBuffer,
+        logicalThreadId, 
+        shuffleId, mapId, numberOfPartitions, keyType,
+        TestConstants.SIZE_OF_BATCH_SERIALIZATION, 
+        ordering)
 
     val reduceId = 1
     val reduceSHMShuffleStore =
       ShuffleStoreManager.INSTANCE.createReduceShuffleStore(
-        threadLocalResources.getKryoInstance, threadLocalResources.getByteBuffer,
-        shuffleId, reduceId, numberOfPartitions)
+        threadLocalResources.getSerializationResource.getKryoInstance, 
+        threadLocalResources.getSerializationResource.getByteBuffer,
+        shuffleId, reduceId, numberOfPartitions, ordering, true)
 
     var mapStatusResult = null.asInstanceOf[ShuffleDataModel.MapStatus]
 
@@ -411,24 +456,20 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
       kvalues.add (i)
     }
 
-    //serializeVs (ArrayList<Object> vvalues, ArrayList<Integer> voffsets, int numberOfVs)
-    mapSHMShuffleStore.serializeVs(testObjects.asInstanceOf[ArrayList[Object]],
-      voffsets.asInstanceOf[ArrayList[Integer]], numberOfVs)
-    //before storeKVpairs, the Value Type needs to be stored already.
-    mapSHMShuffleStore.storeVValueType(testObjects.get(0))
-    // storeKVPairsWithIntKeys (ArrayList<Integer> voffsets,
-    //ArrayList<Integer> kvalues, ArrayList<Integer> partitions, int numberOfPairs)
-    val numberOfPairs = numberOfVs
-    mapSHMShuffleStore.storeKVPairsWithIntKeys(voffsets.asInstanceOf[ArrayList[Integer]],
-      kvalues.asInstanceOf[ArrayList[Integer]],
-      partitions.asInstanceOf[ArrayList[Integer]],
-      numberOfPairs)
+
+    for (i <- 0 to numberOfVs-1) {
+      mapSHMShuffleStore.serializeKVPair(kvalues.get(i), testObjects.get(i),partitions.get(i),
+                                            i, KValueTypeId.Int.getState())
+    }
+
+    val numberOfPairs = numberOfVs;
+    mapSHMShuffleStore.storeKVPairs(numberOfPairs, KValueTypeId.Int.getState())
 
     mapStatusResult = mapSHMShuffleStore.sortAndStore()
 
-    logInfo("map status region name: " + mapStatusResult.getShmRegionName())
+    logInfo("map status region id: " + mapStatusResult.getRegionIdOfIndexBucket())
     logInfo ("map status offset to index chunk: 0x "
-      + java.lang.Long.toHexString(mapStatusResult.getOffsetToIndexBucket()))
+      + java.lang.Long.toHexString(mapStatusResult.getOffsetOfIndexBucket()))
     val buckets = mapStatusResult.getMapStatus()
 
     if (buckets != null) {
@@ -441,10 +482,10 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
     }
 
     //reduce side:
-    reduceSHMShuffleStore.initialize(shuffleId, reduceId, numberOfPartitions)
+    reduceSHMShuffleStore.initialize(shuffleId, reduceId, numberOfPartitions, ordering, true)
     val mapIds = Seq (mapId).toArray
-    val shmRegionNames = Seq (mapStatusResult.getShmRegionName()).toArray
-    val offsetToIndexChunks = Seq (mapStatusResult.getOffsetToIndexBucket()).toArray
+    val shmRegionNames = Seq (mapStatusResult.getRegionIdOfIndexBucket()).toArray
+    val offsetToIndexChunks = Seq (mapStatusResult.getOffsetOfIndexBucket()).toArray
     val sizes = Seq (mapStatusResult.getMapStatus()(reduceId)).toArray //pick the first bucket
 
     val statuses =
@@ -522,7 +563,8 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
     val shuffleManager = SparkEnv.get.shuffleManager
     assert(shuffleManager.isInstanceOf[ShmShuffleManager])
 
-    ShuffleStoreManager.INSTANCE.initialize()
+    ShuffleStoreManager.INSTANCE.initialize(
+           TestConstants.GLOBAL_HEAP_NAME, TestConstants.maxNumberOfTaskThreads, 0)
     val  nativePointer = ShuffleStoreManager.INSTANCE.getPointer()
     logInfo ("native pointer of shuffle store manager retrieved is:"
       + "0x"+ java.lang.Long.toHexString(nativePointer))
@@ -535,16 +577,23 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
 
     val threadLocalResources = getThreadLocalShuffleResource(conf)
 
+    val logicalThreadId =  ShuffleStoreManager.INSTANCE.getlogicalThreadCounter()
+    val ordering = true
     val mapSHMShuffleStore =
-      ShuffleStoreManager.INSTANCE.createMapShuffleStore(threadLocalResources.getKryoInstance,
-        threadLocalResources.getByteBuffer,
-        shuffleId, mapId, numberOfPartitions, keyType)
+      ShuffleStoreManager.INSTANCE.createMapShuffleStore(
+        threadLocalResources.getSerializationResource.getKryoInstance,
+        threadLocalResources.getSerializationResource.getByteBuffer,
+        logicalThreadId, 
+        shuffleId, mapId, numberOfPartitions, keyType,
+        TestConstants.SIZE_OF_BATCH_SERIALIZATION, 
+        ordering)
 
     val reduceId = 96
     val reduceSHMShuffleStore =
       ShuffleStoreManager.INSTANCE.createReduceShuffleStore(
-        threadLocalResources.getKryoInstance, threadLocalResources.getByteBuffer,
-        shuffleId, reduceId, numberOfPartitions)
+        threadLocalResources.getSerializationResource.getKryoInstance,
+        threadLocalResources.getSerializationResource.getByteBuffer,
+        shuffleId, reduceId, numberOfPartitions, ordering, true)
 
     var mapStatusResult = null.asInstanceOf[ShuffleDataModel.MapStatus]
 
@@ -562,24 +611,19 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
       kvalues.add (i)
     }
 
-    //serializeVs (ArrayList<Object> vvalues, ArrayList<Integer> voffsets, int numberOfVs)
-    mapSHMShuffleStore.serializeVs(testObjects.asInstanceOf[ArrayList[Object]],
-      voffsets.asInstanceOf[ArrayList[Integer]], numberOfVs)
-    //before storeKVpairs, the Value Type needs to be stored already.
-    mapSHMShuffleStore.storeVValueType(testObjects.get(0))
-    // storeKVPairsWithIntKeys (ArrayList<Integer> voffsets,
-    //ArrayList<Integer> kvalues, ArrayList<Integer> partitions, int numberOfPairs)
-    val numberOfPairs = numberOfVs
-    mapSHMShuffleStore.storeKVPairsWithIntKeys(voffsets.asInstanceOf[ArrayList[Integer]],
-      kvalues.asInstanceOf[ArrayList[Integer]],
-      partitions.asInstanceOf[ArrayList[Integer]],
-      numberOfPairs)
+    for (i <- 0 to numberOfVs-1) {
+      mapSHMShuffleStore.serializeKVPair(kvalues.get(i), testObjects.get(i),partitions.get(i),
+                                            i, KValueTypeId.Int.getState())
+    }
+
+    val numberOfPairs = numberOfVs;
+    mapSHMShuffleStore.storeKVPairs(numberOfPairs, KValueTypeId.Int.getState())
 
     mapStatusResult = mapSHMShuffleStore.sortAndStore()
 
-    logInfo("map status region name: " + mapStatusResult.getShmRegionName())
+    logInfo("map status region id " + mapStatusResult.getRegionIdOfIndexBucket())
     logInfo ("map status offset to index chunk: 0x "
-      + java.lang.Long.toHexString(mapStatusResult.getOffsetToIndexBucket()))
+      + java.lang.Long.toHexString(mapStatusResult.getOffsetOfIndexBucket()))
     val buckets = mapStatusResult.getMapStatus()
 
     if (buckets != null) {
@@ -592,10 +636,10 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
     }
 
     //reduce side:
-    reduceSHMShuffleStore.initialize(shuffleId, reduceId, numberOfPartitions)
+    reduceSHMShuffleStore.initialize(shuffleId, reduceId, numberOfPartitions, ordering, true)
     val mapIds = Seq (mapId).toArray
-    val shmRegionNames = Seq (mapStatusResult.getShmRegionName()).toArray
-    val offsetToIndexChunks = Seq (mapStatusResult.getOffsetToIndexBucket()).toArray
+    val shmRegionNames = Seq (mapStatusResult.getRegionIdOfIndexBucket()).toArray
+    val offsetToIndexChunks = Seq (mapStatusResult.getOffsetOfIndexBucket()).toArray
     val sizes = Seq (mapStatusResult.getMapStatus()(reduceId)).toArray //pick the first bucket
 
     val statuses =
@@ -667,7 +711,8 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
     val shuffleManager = SparkEnv.get.shuffleManager
     assert(shuffleManager.isInstanceOf[ShmShuffleManager])
 
-    ShuffleStoreManager.INSTANCE.initialize()
+    ShuffleStoreManager.INSTANCE.initialize(
+           TestConstants.GLOBAL_HEAP_NAME, TestConstants.maxNumberOfTaskThreads, 0)
     val  nativePointer = ShuffleStoreManager.INSTANCE.getPointer()
     logInfo ("native pointer of shuffle store manager retrieved is:"
       + "0x"+ java.lang.Long.toHexString(nativePointer))
@@ -679,24 +724,40 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
 
     val threadLocalResources = getThreadLocalShuffleResource(conf)
 
+    val logicalThreadId1 =  ShuffleStoreManager.INSTANCE.getlogicalThreadCounter()
+    val ordering = true
+
     val mapId1 = 1
     val mapSHMShuffleStore1 =
-      ShuffleStoreManager.INSTANCE.createMapShuffleStore(threadLocalResources.getKryoInstance,
-        threadLocalResources.getByteBuffer,
-        shuffleId, mapId1, numberOfPartitions, keyType)
+      ShuffleStoreManager.INSTANCE.createMapShuffleStore(
+        threadLocalResources.getSerializationResource.getKryoInstance,
+        threadLocalResources.getSerializationResource.getByteBuffer,
+        logicalThreadId1,
+        shuffleId, mapId1, numberOfPartitions, keyType,
+        TestConstants.SIZE_OF_BATCH_SERIALIZATION, 
+        ordering
+        )
 
     val mapId2 = 4
+
+    val logicalThreadId2 =  ShuffleStoreManager.INSTANCE.getlogicalThreadCounter()
     val mapSHMShuffleStore2 =
-      ShuffleStoreManager.INSTANCE.createMapShuffleStore(threadLocalResources.getKryoInstance,
-        threadLocalResources.getByteBuffer,
-        shuffleId, mapId2, numberOfPartitions, keyType)
+      ShuffleStoreManager.INSTANCE.createMapShuffleStore(
+        threadLocalResources.getSerializationResource.getKryoInstance,
+        threadLocalResources.getSerializationResource.getByteBuffer,
+        logicalThreadId2,
+        shuffleId, mapId2, numberOfPartitions, keyType,
+        TestConstants.SIZE_OF_BATCH_SERIALIZATION, 
+        ordering
+        )
 
 
     val reduceId = 0
     val reduceSHMShuffleStore =
       ShuffleStoreManager.INSTANCE.createReduceShuffleStore(
-        threadLocalResources.getKryoInstance, threadLocalResources.getByteBuffer,
-        shuffleId, reduceId, numberOfPartitions)
+        threadLocalResources.getSerializationResource.getKryoInstance,
+        threadLocalResources.getSerializationResource.getByteBuffer,
+        shuffleId, reduceId, numberOfPartitions, ordering, true)
 
     val numberOfVs = 10
     val testObjects = new ArrayList[RankingsClass] ()
@@ -712,24 +773,20 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
       kvalues.add (i)
     }
 
-    //serializeVs (ArrayList<Object> vvalues, ArrayList<Integer> voffsets, int numberOfVs)
-    mapSHMShuffleStore1.serializeVs(testObjects.asInstanceOf[ArrayList[Object]],
-      voffsets.asInstanceOf[ArrayList[Integer]], numberOfVs)
-    //before storeKVpairs, the Value Type needs to be stored already.
-    mapSHMShuffleStore1.storeVValueType(testObjects.get(0))
-    // storeKVPairsWithIntKeys (ArrayList<Integer> voffsets,
-    //ArrayList<Integer> kvalues, ArrayList<Integer> partitions, int numberOfPairs)
-    val numberOfPairs1 = numberOfVs
-    mapSHMShuffleStore1.storeKVPairsWithIntKeys(voffsets.asInstanceOf[ArrayList[Integer]],
-      kvalues.asInstanceOf[ArrayList[Integer]],
-      partitions.asInstanceOf[ArrayList[Integer]],
-      numberOfPairs1)
+
+    for (i <- 0 to numberOfVs-1) {
+      mapSHMShuffleStore1.serializeKVPair(kvalues.get(i), testObjects.get(i),partitions.get(i),
+                                            i, KValueTypeId.Int.getState())
+    }
+
+    val numberOfPairs1 = numberOfVs;
+    mapSHMShuffleStore1.storeKVPairs(numberOfPairs1, KValueTypeId.Int.getState())
 
     val  mapStatusResult1 = mapSHMShuffleStore1.sortAndStore()
 
-    logInfo("map status region name: " + mapStatusResult1.getShmRegionName())
+    logInfo("map status region id: " + mapStatusResult1.getRegionIdOfIndexBucket())
     logInfo ("map status offset to index chunk: 0x "
-      + java.lang.Long.toHexString(mapStatusResult1.getOffsetToIndexBucket()))
+      + java.lang.Long.toHexString(mapStatusResult1.getOffsetOfIndexBucket()))
     val buckets = mapStatusResult1.getMapStatus()
 
     if (buckets != null) {
@@ -741,24 +798,20 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
       logInfo("for map store 1, map status buckets length is null.")
     }
 
-    //serializeVs (ArrayList<Object> vvalues, ArrayList<Integer> voffsets, int numberOfVs)
-    mapSHMShuffleStore2.serializeVs(testObjects.asInstanceOf[ArrayList[Object]],
-      voffsets.asInstanceOf[ArrayList[Integer]], numberOfVs)
-    //before storeKVpairs, the Value Type needs to be stored already.
-    mapSHMShuffleStore2.storeVValueType(testObjects.get(0))
-    // storeKVPairsWithIntKeys (ArrayList<Integer> voffsets,
-    //ArrayList<Integer> kvalues, ArrayList<Integer> partitions, int numberOfPairs)
-    val numberOfPairs2 = numberOfVs
-    mapSHMShuffleStore2.storeKVPairsWithIntKeys(voffsets.asInstanceOf[ArrayList[Integer]],
-      kvalues.asInstanceOf[ArrayList[Integer]],
-      partitions.asInstanceOf[ArrayList[Integer]],
-      numberOfPairs2)
+
+    for (i <- 0 to numberOfVs-1) {
+      mapSHMShuffleStore2.serializeKVPair(kvalues.get(i), testObjects.get(i),partitions.get(i),
+                                            i, KValueTypeId.Int.getState())
+    }
+
+    val numberOfPairs2 = numberOfVs;
+    mapSHMShuffleStore2.storeKVPairs(numberOfPairs2, KValueTypeId.Int.getState())
 
     val  mapStatusResult2 = mapSHMShuffleStore2.sortAndStore()
 
-    logInfo("map status region name: " + mapStatusResult2.getShmRegionName())
+    logInfo("map status region id: " + mapStatusResult2.getRegionIdOfIndexBucket())
     logInfo ("map status offset to index chunk: 0x "
-      + java.lang.Long.toHexString(mapStatusResult2.getOffsetToIndexBucket()))
+      + java.lang.Long.toHexString(mapStatusResult2.getOffsetOfIndexBucket()))
     val buckets2 = mapStatusResult2.getMapStatus()
 
     if (buckets2 != null) {
@@ -773,12 +826,12 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
 
 
     //reduce side:
-    reduceSHMShuffleStore.initialize(shuffleId, reduceId, numberOfPartitions)
+    reduceSHMShuffleStore.initialize(shuffleId, reduceId, numberOfPartitions, ordering, true)
     val mapIds = Seq (mapId1, mapId2).toArray
-    val shmRegionNames = Seq (mapStatusResult1.getShmRegionName(),
-                                   mapStatusResult2.getShmRegionName()).toArray
-    val offsetToIndexChunks = Seq (mapStatusResult1.getOffsetToIndexBucket(),
-                                         mapStatusResult2.getOffsetToIndexBucket()).toArray
+    val shmRegionNames = Seq (mapStatusResult1.getRegionIdOfIndexBucket(),
+                                   mapStatusResult2.getRegionIdOfIndexBucket()).toArray
+    val offsetToIndexChunks = Seq (mapStatusResult1.getOffsetOfIndexBucket(),
+                                         mapStatusResult2.getOffsetOfIndexBucket()).toArray
     val sizes = Seq (mapStatusResult1.getMapStatus()(reduceId),
                              mapStatusResult1.getMapStatus()(reduceId)).toArray //pick the first bucket
 
@@ -833,14 +886,6 @@ class TestReduceSHMShuffleStore extends FunSuite with LocalSparkContext with Log
 
     val expecteds = Seq (0, 2, 4, 6, 8)
     assert  (expecteds === actuals.toArray)
-
-    //finally, add the value class definition retrieval
-
-    val typeDefinition = reduceSHMShuffleStore.getVValueType()
-    val retrievedClass =  reduceSHMShuffleStore.getVValueTypeClass(typeDefinition)
-    logInfo ("retrieved application class is: " + retrievedClass.getName())
-    assert (retrievedClass.equals(classOf[RankingsClass]))
-
 
     reduceSHMShuffleStore.stop()
     reduceSHMShuffleStore.shutdown()

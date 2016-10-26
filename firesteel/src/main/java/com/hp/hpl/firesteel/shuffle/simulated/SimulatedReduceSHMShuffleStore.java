@@ -19,10 +19,8 @@ package com.hp.hpl.firesteel.shuffle.simulated;
 
 import com.hp.hpl.firesteel.shuffle.*;
 import com.esotericsoftware.kryo.Kryo;
-import com.esotericsoftware.kryo.io.ByteBufferInput;
 import com.hp.hpl.firesteel.shuffle.ReduceShuffleStore;
 import com.hp.hpl.firesteel.shuffle.ShuffleDataModel;
-import com.hp.hpl.firesteel.shuffle.ShuffleStoreManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -352,6 +350,20 @@ public class SimulatedReduceSHMShuffleStore implements ReduceShuffleStore {
           }
 
           return actualKVPairs;
+    }
+
+
+    @Override
+    public int getKVPairsWithByteArrayKeys (
+            ArrayList<byte[]> kvalues, ArrayList<ArrayList<Object>> vvalues, int knumbers) {
+    	return 0;
+    }
+
+
+    @Override
+    public int getSimpleKVPairsWithByteArrayKeys (
+                     ArrayList<byte[]> kvalues, ArrayList<Object> values, int knumbers){
+    	return 0;
     }
 
     @Override

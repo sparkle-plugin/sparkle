@@ -18,17 +18,20 @@
 #ifndef ENUM_KV_TYPES_H_
 #define ENUM_KV_TYPES_H_
 
+#include <stdlib.h>
+
 //enum, corresonding to ShuffleDataModel defined in java
-static const size_t TOTAL_PREDEFINED_KVALUETYPE_IDS=7;
+static const size_t TOTAL_PREDEFINED_KVALUETYPE_IDS=8;
 
 enum KValueTypeId {
   Int = 0,
   Long = 1,
   Float = 2,
-  Double =3,
+  Double = 3,
   String = 4,
-  Object = 5,
-  Unknown= 6
+  ByteArray = 5,
+  Object = 6,
+  Unknown= 7
 };
 
 //to allow object-based Key type definition 

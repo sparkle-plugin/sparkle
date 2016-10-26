@@ -21,13 +21,14 @@ import java.io.Serializable;
 
 
 public class ShmAddress implements Serializable{
-	public int regionId;
+    public int regionId;
     public long offset_attrTable;
     public long offset_hash1stTable;
     public long offset_hash2ndTable;
-	public int bucket_cnt;
+    public int bucket_cnt;
 
-	public ShmAddress() {
-	}
+   public ShmAddress() {
+
+   }
 }
 

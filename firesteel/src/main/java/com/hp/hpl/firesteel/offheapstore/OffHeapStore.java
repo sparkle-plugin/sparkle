@@ -23,6 +23,8 @@ import java.io.IOException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.hp.hpl.firesteel.shuffle.ShuffleStoreManager;
+
 
 /**
  * test for access of unsafe memory 
@@ -37,10 +39,11 @@ public class OffHeapStore {
 	private String globalHeapName;
 	private int executorId;
 	private boolean initialized =false;
+	private boolean shutdown =false;
 
     private OffHeapStore () {
         //only one library will be loaded.
-        String libraryName = "jnioffheapstore";
+        String libraryName = "jnishmoffheapstore";
         initNativeLibrary(libraryName);
     }
 
@@ -82,12 +85,23 @@ public class OffHeapStore {
 
         return this;
 
-	}
+    }
 
-	public long getPointerToOffHeapStoreManager() {
-		return this.ptrOffHeapStoreMgr;
-	}	
+    public long getPointerToOffHeapStoreManager() {
+	return this.ptrOffHeapStoreMgr;
+    }	
+
     private native long ninitialize (String globalHeapName, int executorId);
+
+
+    public synchronized void shutdown() {
+        if (!shutdown) {
+            shutdown(this.ptrOffHeapStoreMgr);
+            shutdown = true;
+        }
+    }
+
+    private native void shutdown(long ptrOffHeapStoreMgr);
 
 	/**
       * To create an attribute partition 
@@ -95,7 +109,7 @@ public class OffHeapStore {
       * @param size the memory size for the partition
       * @param shmAddr the shared memory address for the partition returned by OffHeapStoreManager
       */
-    public synchronized void createAttributePartition (long addr, int size, ShmAddress shmAddr) {
+    public void createAttributePartition (long addr, int size, ShmAddress shmAddr) {
 		createAttributePartition(this.ptrOffHeapStoreMgr, addr, size, shmAddr);	
 	}
     private native void createAttributePartition (long ptrOffHeapStoreMgr, long addr, int size, ShmAddress shmAddr);
@@ -107,7 +121,7 @@ public class OffHeapStore {
       * @param valuesize the memory size for each value (Note: the key type is fixed as long)
       * @param shmAddr the shared memory addresses for partition and hash partition returned by OffHeapStoreManager
       */
-    public synchronized void createAttributeHashPartition (long addr, int size, int valuesize, ShmAddress shmAddr) {
+    public void createAttributeHashPartition (long addr, int size, int valuesize, ShmAddress shmAddr) {
 
         if (!initialized) {
             this.ptrOffHeapStoreMgr = ninitialize(globalHeapName,  executorId);
@@ -115,7 +129,7 @@ public class OffHeapStore {
         }
        
 		createAttributeHashPartition(this.ptrOffHeapStoreMgr, addr, size, valuesize, shmAddr);	
-		LOG.info("createAttributeHashPartition JAVA:" + shmAddr.regionId + "," + shmAddr.offset_attrTable + "," + shmAddr.offset_hash1stTable + "," + shmAddr.offset_hash2ndTable);
+		LOG.debug("createAttributeHashPartition JAVA:" + shmAddr.regionId + "," + shmAddr.offset_attrTable + "," + shmAddr.offset_hash1stTable + "," + shmAddr.offset_hash2ndTable);
 		
 	}
     private native void createAttributeHashPartition (long ptrOffHeapStoreMgr, long addr, int size, int valuesize, ShmAddress shmAddr); 

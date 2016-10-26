@@ -21,7 +21,6 @@ import java.util.List;
 import java.util.ArrayList;
 
 /**
- * Created by junli on 4/29/2015.
  * to gather shuffle data contributed from all of the Map tasks
  */
 public interface ReduceShuffleStore {
@@ -200,6 +199,28 @@ public interface ReduceShuffleStore {
          * @return the actual simple key/value pairs that are available (it can be the last processing batch) 
          */
         int getSimpleKVPairsWithStringKeys (ArrayList<String> kvalues, ArrayList<Object> values, int knumbers); 
+        
+        /**
+         * for speical K value type that is byte array, to retrieve key/values pairs
+         * @param kvalues
+         * @param vvalues
+         * @param knumbers
+         * @return
+         */
+        public int getKVPairsWithByteArrayKeys (
+                            ArrayList<byte[]> kvalues, ArrayList<ArrayList<Object>> vvalues, int knumbers);
+
+
+       /**
+        * for speical K value type that is byte array, to retrieve key/value pairs
+        * @param kvalues
+        * @param values
+        * @param knumbers
+        * @return
+        */
+        public int getSimpleKVPairsWithByteArrayKeys (
+                                     ArrayList<byte[]> kvalues, ArrayList<Object> values, int knumbers);
+ 
         
         
         /**

@@ -19,8 +19,6 @@ package com.hp.hpl.firesteel.shuffle;
 
 
 import com.esotericsoftware.kryo.Kryo;
-//NOTE: this class only exists on Kryo.3.0.0, not the version that Spark 1.2.0 depends on
-//(via Chill 0.5.0)
 import com.esotericsoftware.kryo.io.ByteBufferOutput;
 import java.util.Arrays;
 import java.util.ArrayList;
@@ -31,13 +29,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * to implement the Mapside Shuffle Store. we will use the Kryo serializer to do internal
+ * to implement the Mapside Shuffle Store. We will use the Kryo serializer to do internal
  * object serialization/de-serialization
  * 
  */
 public class MapSHMShuffleStore implements MapShuffleStore {
 
     private static final Logger LOG = LoggerFactory.getLogger(MapSHMShuffleStore.class.getName());
+    
     /**
      * NOTE this class can only work on Kryo 3.0.0
      * to allow testing in Spark shm-shuffle package. 
@@ -70,6 +69,10 @@ public class MapSHMShuffleStore implements MapShuffleStore {
         public void writeClass(Class type) {
             this.kryo.writeClass(this.output, type);
         }
+        
+        public void directCopy(byte[] val) {
+            this.output.writeBytes(val);//the cursor should advance afterwards.
+        }
 
 
         /**
@@ -96,7 +99,7 @@ public class MapSHMShuffleStore implements MapShuffleStore {
         public void init() {
             //to avoid that the buffer gets expanded last time and then gets released at the time
             //of last marshalling.
-        	this.originalBuffer.rewind();
+            this.originalBuffer.rewind();
             this.output.setBuffer(this.originalBuffer);
             //The flip() method switches a Buffer from writing mode to reading mode. 
             //Calling flip() sets the position back to 0, and sets the limit to where position just was.
@@ -219,6 +222,7 @@ public class MapSHMShuffleStore implements MapShuffleStore {
          this.npartitions = new int[this.sizeOfBatchSerialization];
          
          //for different key types 
+         //for different key types                                                                                                                                     
          if (keyType == ShuffleDataModel.KValueTypeId.Int) {
              this.nkvalues = new int[this.sizeOfBatchSerialization];
          }
@@ -232,8 +236,21 @@ public class MapSHMShuffleStore implements MapShuffleStore {
              this.skvalues = new String[this.sizeOfBatchSerialization];
              this.slkvalues = new int [this.sizeOfBatchSerialization];
          }
-         //for object, it has been take care of by store kv pairs and thus use koffsets and voffsets
+         else if (keyType == ShuffleDataModel.KValueTypeId.ByteArray){
+             //do nothing, as it will use koffsets and voffsets.                                                                                                       
+         }
+         else if (keyType == ShuffleDataModel.KValueTypeId.Object){
+        	 throw new UnsupportedOperationException ( "key type: " + keyType + " is not supported");                                                                                                      
+         }
+         else {
+            throw new UnsupportedOperationException ( "key type: " + keyType + " is not supported");
+         }
+
          
+         //also initialize the serializer
+         this.serializer.init();
+         
+         //for object, it has been take care of by store kv pairs and thus use koffsets and voffsets
          this.pointerToStore=
                  ninitialize(this.shuffleStoreManager.getPointer(),
                          shuffleId, mapTaskId, numberOfPartitions, keyType.getState(),
@@ -249,6 +266,21 @@ public class MapSHMShuffleStore implements MapShuffleStore {
     public void stop() {
         LOG.info( "store id " + this.storeId + " map-side shared-memory based shuffle store stopped with id:"
                 + this.shuffleId + "-" + this.mapTaskId);
+        //recycle the shuffle resource
+        //(1) retrieve the shuffle resource object from the thread specific storage
+        //(2) return it to the shuffle resource tracker
+        //ThreadLocalShuffleResourceHolder holder = new ThreadLocalShuffleResourceHolder();
+        //ThreadLocalShuffleResourceHolder.ShuffleResource resource = holder.getResource();
+        //if (resource != null) {
+           //return it to the shuffle resource tracker
+        //   this.shuffleStoreManager.getShuffleResourceTracker().recycleSerializationResource(resource);
+        //}
+        //else {
+        //    LOG.error( "store id " + this.storeId + " map-side shared-memory based shuffle store stopped with id:"
+	    //       + this.shuffleId + "-" + this.mapTaskId + " does not have recycle serialized resource");
+        //
+	    //}
+        //then stop the native resources as well. 
         nstop(this.pointerToStore);
     }
 
@@ -268,59 +300,290 @@ public class MapSHMShuffleStore implements MapShuffleStore {
     }
 
     private native void nshutdown(long ptrToStore);
-    /**
-     * to serialize the (K,V) pairs  into the byte buffer, and record the offests in the byte
-     * buffer for each K values and V values. Both K and V will be serialized. Note  we will
-     * have to pool the ByteBuffer from the caller.
-     *
-     * @param kvalues the array of the K values
-     * @param vvalues the array of the V values
-     * @param numberOfPairs the size of the array of (K,V) pairs
-     * 
-     * the result about koffsets is in the array  the records each offset of the K values serialized in the
-     *                  byte buffer
-     * the result about voffsets is in the array that records each offset of the V values serialized in the
-     *                 byte byffer
-     */
-    @Override
-    public void serializeKVPairs (ArrayList<Object> kvalues, ArrayList<Object> vvalues, int numberOfPairs) {
 
-        //this involves memory allocation. So we will have to pool it.
-        this.serializer.init();
-        for (int i=0; i<numberOfPairs;i++) {
-            this.serializer.writeObject(kvalues.get(i));
-            ByteBuffer currentKBuf = this.serializer.getByteBuffer();
-            this.koffsets[i]= currentKBuf.position();
-            this.serializer.writeObject(vvalues.get(i));
-            ByteBuffer currentVBuf = this.serializer.getByteBuffer();
-            this.voffsets[i]= currentVBuf.position();
+    //for key = int, value = object 
+    protected  void serializeVInt (int kvalue, Object vvalue, int partitionId, int indexPosition) {
+    	
+    	this.nkvalues[indexPosition] = kvalue;
+        this.npartitions[indexPosition] = partitionId;
+        //serialize v into the bytebuffer. serializer has been initialized already.
+        this.serializer.writeObject(vvalue);
+        ByteBuffer currentVBuf = this.serializer.getByteBuffer();
+        this.voffsets[indexPosition]= currentVBuf.position();
+    }
+    
+    //for key = float, value = object 
+    protected void serializeVFloat (float kvalue, Object vvalue, int partitionId, int indexPosition) {
+    	
+    	this.fkvalues[indexPosition] = kvalue;
+        this.npartitions[indexPosition] = partitionId;
+        //serialize v into the bytebuffer. serializer has been initialized already.
+        this.serializer.writeObject(vvalue);
+        ByteBuffer currentVBuf = this.serializer.getByteBuffer();
+        this.voffsets[indexPosition]= currentVBuf.position();
+    }
+    
+     //for key = long, value = object
+     protected void serializeVLong (long kvalue, Object vvalue, int partitionId, int indexPosition) {
+    	
+    	this.lkvalues[indexPosition] = kvalue;
+        this.npartitions[indexPosition] = partitionId;
+        //serialize v into the bytebuffer. serializer has been initialized already.
+        this.serializer.writeObject(vvalue);
+        ByteBuffer currentVBuf = this.serializer.getByteBuffer();
+        this.voffsets[indexPosition]= currentVBuf.position();
+     }
+    
+     //for key = byte-array, value = object
+     protected void serializeVByteArray (byte[] kvalue, Object vvalue, int partitionId, int indexPosition) {
+     	
+        this.npartitions[indexPosition] = partitionId;
+        this.serializer.directCopy(kvalue);
+        ByteBuffer currentKBuf = this.serializer.getByteBuffer();
+        this.koffsets[indexPosition]= currentKBuf.position();
+        //if (LOG.isDebugEnabled()) {
+        //	LOG.debug("serialize KV pairs with byte-array " + i + "-th key has position: " + this.koffsets[i]);
+        //}
+        this.serializer.writeObject(vvalue);
+        //the serialization buffer may be full and the new buffer is created. 
+        ByteBuffer currentVBuf = this.serializer.getByteBuffer();
+        this.voffsets[indexPosition]= currentVBuf.position();
+     }
+     
+     //for key = double, value = object
+     protected void serializeVDouble (double kvalue, Object vvalue, int partitionId, int indexPosition) {
+       throw new RuntimeException ("serialize V for double value is not implemented");
+     }
+     
+     //for key = string, value = object
+     protected void serializeVString (String kvalue, Object vvalue, int partitionId, int indexPosition) {
+         throw new RuntimeException ("serialize V for String value is not implemented");
+         
+     }
+     
+     //for key = object, value = object
+     public void serializeVObject (Object kvalue, Object vvalue, int partitionId, int indexPosition) {
+         throw new RuntimeException ("serialize V for Object value is not implemented");
+     }
+     
+     @Override 
+     public void serializeKVPair (Object kvalue, Object vvalue, int partitionId, int indexPosition, int scode) {
+          //rely on Java to generate fast switch statement. 
+    	  switch (scode) {
+    	    case 0: 
+		 serializeVInt (((Integer)kvalue).intValue(), vvalue, partitionId,  indexPosition); 
+    	    	 break;
+    	    case 1: 
+		 serializeVLong (((Long)kvalue).longValue(), vvalue, partitionId,  indexPosition);
+    	    	 break;
+    	    case 2:
+		 serializeVFloat (((Float)kvalue).floatValue(), vvalue,  partitionId,  indexPosition);
+                 break;
+    	    case 3: 
+		 serializeVDouble (((Double)kvalue).doubleValue(), vvalue,  partitionId,  indexPosition); 
+    	    	 break;
+    	    case 4: 
+    	    	 serializeVString ((String)kvalue, vvalue,  partitionId,  indexPosition);
+    	    	 break;
+    	    case 5:
+    	    	 serializeVByteArray ((byte[])kvalue, vvalue,  partitionId,  indexPosition);
+    	    	 break;
+    	    case 6:
+    	    	 serializeVObject (kvalue, vvalue,  partitionId,  indexPosition); 
+    	    	 break;
+    	    default: 
+                 throw new RuntimeException ("no specialied key-value type expected");
+    	    
+    	  }
+     }
+    
+     @Override
+     public void storeKVPairs(int numberOfPairs, int scode) {
+    	//rely on Java to generate fast switch statement. 
+   	  switch (scode) {
+   	    case 0: 
+   	    	storeKVPairsWithIntKeys (numberOfPairs); 
+   	    	 break;
+   	    case 1: 
+   	    	storeKVPairsWithLongKeys (numberOfPairs);
+   	    	 break;
+   	    case 2:
+   	    	storeKVPairsWithFloatKeys(numberOfPairs);
+                break;
+   	    case 3: 
+   	    	 throw new RuntimeException ("key type of double is not implemented");
+   	    	 //break;
+   	    case 4: 
+   	    	 storeKVPairsWithStringKeys (numberOfPairs);
+   	    	 break;
+   	    case 5:
+   	    	 storeKVPairsWithByteArrayKeys (numberOfPairs);
+   	    	 break;
+   	    case 6:
+   	    	throw new RuntimeException ("key type of arbitrary object is not implemented"); 
+   	    	 //break;
+   	    default: 
+   	    	throw new RuntimeException ("unknown key type is encountered");
+   	    
+   	  }
+     }
+     
+    //Special case: to store the (K,V) pairs that have the K values to be with type of Integer
+    public void storeKVPairsWithIntKeys (int numberOfPairs) {
+        //NOTE: this byte buffer my be re-sized during serialization.
+    	this.serializer.init();//to initialize the serializer;
+        ByteBuffer holder = this.serializer.getByteBuffer();
+     
+        if (LOG.isDebugEnabled()) 
+        {
+            LOG.debug ( "store id " + this.storeId + " in method storeKVPairsWithIntKeys" + " numberOfPairs is: " + numberOfPairs); 
+     	    //for direct buffer, array() throws unsupported operation exception. 
+            //byte[] bytesHolder = holder.array();
+            // parse the values and turn them into bytes.
+            for (int i=0; i<numberOfPairs;i++) {
+
+                LOG.debug ( "store id " + this.storeId + " " + i + "-th key's value: " + nkvalues[i]);
+
+                int vStart=0;
+                if (i>0) {
+                    vStart = voffsets[i-1];
+                }
+                int vEnd=voffsets[i];
+                int vLength = vEnd-vStart;
+                
+                LOG.debug ("store id " + this.storeId + " value: " + i +  " has length: " + vLength + " start: " + vStart + " end: " + vEnd);
+                LOG.debug ("store id " + this.storeId + " [artition Id: " + i + " is: "  + npartitions[i]);
+            }
+
         }
 
-        //at the end, close it
-        this.serializer.close();
+
+        nstoreKVPairsWithIntKeys(this.pointerToStore,
+                                    holder, this.voffsets, this.nkvalues, npartitions, numberOfPairs);
+        
+        this.serializer.init();//to initialize the serializer;
     }
 
-    /**
-     * to store serialized (K,V) pairs stored in the byte buffer, into the C++ shared-memory
-     * region
-     * combined with the koffsets the offests for the K values
-     * combined with the voffsets the offsets for the V values
-     * @param partitions the partition number computed by the partitioner function for each
-     *                  (K,V) pair
-     * @param numberOfPairs the size of the (K,V) pairs that have been serialized and to be
-     */
-    @Override
-    public void storeKVPairs(ArrayList<Integer> partitions, int numberOfPairs) {
+    private native void nstoreKVPairsWithIntKeys (long ptrToStore, ByteBuffer holder, int[] voffsets,
+                                         int [] kvalues, int[] partitions, int numberOfPairs);
+   
+    //Special case: to store the (K,V) pairs that have the K values to be with type of float
+    public void storeKVPairsWithFloatKeys (int numberOfPairs) {
+    	this.serializer.init();//to initialize the serializer;
+        ByteBuffer holder = this.serializer.getByteBuffer();
+    
+        if (LOG.isDebugEnabled()) {
+            // parse the values and turn them into bytes.
+       	    LOG.debug ( "store id " + this.storeId + " in method storeKVPairsWithFloatKeys" + " numberOfPairs is: " + numberOfPairs);
+        	
+            for (int i=0; i<numberOfPairs;i++) {
 
-    	if (!keyvalueTypeStored) {
-    		throw new RuntimeException ( "store id " + this.storeId 
-    				         + " both key type and value type should have been stored to C++ shuffle engine");
-    	}
-    	
+                LOG.debug( "store id " + this.storeId + " key: " + i  + "with value: " + fkvalues[i]);
+
+                int vStart=0;
+                if (i>0){
+                    vStart = voffsets[i-1];
+                }
+                int vEnd=voffsets[i];
+                int vLength = vEnd-vStart;
+                
+                LOG.debug("store id " + this.storeId + " value: " + i +  " has length: " + vLength + " start: " + vStart + " end: " + vEnd);
+                LOG.debug("store id " + this.storeId + " partition Id: " + i + " is: "  + npartitions[i]);
+            }
+
+        }
+
+        nstoreKVPairsWithFloatKeys(this.pointerToStore, holder, this.voffsets, this.fkvalues, this.npartitions, numberOfPairs);
+        this.serializer.init();//to initialize the serializer;
+    }
+
+    private native void nstoreKVPairsWithFloatKeys (long ptrToStrore, ByteBuffer holder, int[] voffsets,
+                                           float[] kvalues, int[] partitions, int numberOfPairs);
+
+    //Special case: to store the (K,V) pairs that have the K values to be with type of Long
+    public void storeKVPairsWithLongKeys (int numberOfPairs) {
+
+    	this.serializer.init();//to initialize the serializer;
+        ByteBuffer holder = this.serializer.getByteBuffer();
+       
+        if (LOG.isDebugEnabled()) {
+        	
+            LOG.debug ( "store id " + this.storeId + " in method storeKVPairsWithLongKeys" + " numberOfPairs is: " + numberOfPairs);
+        	
+            // parse the values and turn them into bytes.
+            for (int i=0; i<numberOfPairs;i++) {
+
+                LOG.debug( "store id " + this.storeId + " key: " + i  + "with value: " + lkvalues[i]);
+
+                int vStart=0;
+                if (i>0) {
+                    vStart = voffsets[i-1];
+                }
+                int vEnd=voffsets[i];
+                int vLength = vEnd-vStart;
+               
+                LOG.debug("store id " + this.storeId + " value: " + i +  " has length: " + vLength + " start: " + vStart + " end: " + vEnd);
+                LOG.debug("store id " + this.storeId + " partition Id: " + i + " is: "  + npartitions[i]);
+            }
+
+        }
+
+
+        nstoreKVPairsWithLongKeys (this.pointerToStore, holder, this.voffsets, this.lkvalues, this.npartitions, numberOfPairs);
+        
+        this.serializer.init();//to initialize the serializer;
+    }
+
+    private native void nstoreKVPairsWithLongKeys (long ptrToStore, ByteBuffer holder, int[] voffsets,
+                                          long[] kvalues, int[] partitions, int numberOfPairs);
+
+    //Special case: to store the (K,V) pairs that have the K values to be with type of String
+    public void storeKVPairsWithStringKeys (int numberOfPairs){
+    	this.serializer.init();//to initialize the serializer;
+    	ByteBuffer holder = this.serializer.getByteBuffer();
+
+        if (LOG.isDebugEnabled()) {
+       	    LOG.debug ( "store id " + this.storeId + " in method storeKVPairsWithStringKeys" + " numberOfPairs is: " + numberOfPairs);
+        	
+            // parse the values and turn them into bytes.
+            for (int i=0; i<numberOfPairs;i++) {
+
+                LOG.debug( "store id " + this.storeId + " key: " + i  + "with value: " + skvalues[i]);
+
+                int vStart=0;
+                if (i>0){
+                    vStart = voffsets[i-1];
+                }
+                int vEnd=voffsets[i];
+                int vLength = vEnd-vStart;
+                
+                LOG.debug("store id " + this.storeId + " value: " + i +  " has length: " + vLength + " start: " + vStart + " end: " + vEnd);
+                LOG.debug("store id " + this.storeId + " partition Id: " + i + " is: "  + npartitions[i]);
+            }
+
+        }
+
+        //NOTE: this will need to do the fixing later. 
+        for (int i=0; i<numberOfPairs; i++) {
+        	this.slkvalues[i] = this.skvalues[i].length();  
+        }
+
+        nstoreKVPairsWithStringKeys (this.pointerToStore, holder, 
+        		                     this.voffsets, this.skvalues, this.slkvalues, this.npartitions, numberOfPairs);
+        this.serializer.init();//to initialize the serializer;
+
+    }
+
+    private native void nstoreKVPairsWithStringKeys (long ptrToStore, ByteBuffer holder, int[] voffsets,
+                               String[] kvalues, int nkvalueLengths[], int partitions[], int numberOfPairs);
+
+    
+    //Special case: to store the (K,V) pairs that have the K values to be with type of byte-array
+    public void storeKVPairsWithByteArrayKeys(int numberOfPairs) {
+    	this.serializer.init();//to see whether this is the problem to not initialize it.
         ByteBuffer holder=this.serializer.getByteBuffer(); //this may be re-sized.
 
         if (LOG.isDebugEnabled()) {
-            byte[] bytesHolder = holder.array();
             // parse the values and turn them into bytes.
             for (int i=0; i<numberOfPairs;i++) {
                 int kLength = 0;
@@ -337,260 +600,32 @@ public class MapSHMShuffleStore implements MapShuffleStore {
                     kLength=kEnd-kStart;
                 }
                 byte[] kValue = new byte[kLength];
-                Arrays.copyOfRange(bytesHolder,kStart, kEnd);
-                LOG.debug("store id " + this.storeId + " Key: " + i  + "with value: " + new String(kValue));
+                holder.get(kValue); //then the position of the byte buffer advance kLength.
+                LOG.debug("store id " + this.storeId +  " " 
+                                  + i + "-th key" + "with length: " +  kLength + " value: " +  getHex(kValue));
 
 
                 int vStart=koffsets[i];
                 int vEnd=voffsets[i];
                 int vLength = vEnd-vStart;
                 byte[] vValue = new byte[vLength];
-                Arrays.copyOfRange(bytesHolder, vStart, vEnd);
-                LOG.debug( "store id " + this.storeId + " value: " + i + " with value: " + new String(vValue));
+                holder.get(vValue);//then the position of the byte buffer advance vLength
+                LOG.debug( "store id " + this.storeId + " value: " + i + " with value: " + getHex(vValue));
 
-                LOG.debug( "store id " + this.storeId + " partition Id: " + i + " is: "  + partitions.get(i));
+                LOG.debug( "store id " + this.storeId + " partition Id: " + i + " is: "  + npartitions[i]);
             }
 
         }
 
-        //only need the partition numbers to be passed in. 
-        for (int i=0; i<numberOfPairs; i++) {
-            this.npartitions[i] = partitions.get(i);
-        }
-
-        nstoreKVPairs(this.pointerToStore, holder, this.koffsets, this.voffsets, this.npartitions,numberOfPairs);
-    }
-
-    private native void nstoreKVPairs(long ptrToStore, ByteBuffer holder,
-                                     int [] koffsets, int [] voffsets, int[] partitions, int numberOfPairs);
-
-    /**
-     * to serialize the V values for the(K,V) pairs that have the K values to be with type of
-     * int, float, long, string that are supported by  C++.
-     * @param vvalues the V values
-     * the result is to store in private member voffsets: the array that records each offset of 
-     * the V values serialized in the byte buffer
-     * @param numberOfVs the size of the array of (K,V) pairs
-     */
-    @Override
-    public void serializeVs (ArrayList<Object> vvalues, int numberOfVs) {
-        //this involves memory allocation. So we will have to pool it.
+        nstoreKVPairsWithByteArrayKeys(this.pointerToStore,
+                                             holder, this.koffsets, this.voffsets, this.npartitions,numberOfPairs);
+        
         this.serializer.init();
-        for (int i=0; i<numberOfVs;i++) {
-            this.serializer.writeObject(vvalues.get(i));
-            ByteBuffer currentVBuf = this.serializer.getByteBuffer();
-            this.voffsets[i]= currentVBuf.position();
-        }
-
-        //at the end, close it
-        this.serializer.close();
     }
 
-    /**
-     * Speical case: to store the (K,V) pairs that have the K values to be with type of Integer
-     * combined with private member voffsets
-     * @param kvalues
-     * @param partitions
-     * @param numberOfPairs
-     */
-    @Override
-    public void storeKVPairsWithIntKeys (
-                  ArrayList<Integer> kvalues, ArrayList<Integer> partitions, int numberOfPairs) {
-    	//make sure that the value type has been stored.
-    	if (!vvalueTypeStored) {
-    		throw new RuntimeException ( "store id " + this.storeId + 
-    				               " value type should have been stored to C++ shuffle engine");
-    	}
-    	
-    	
-        //NOTE: this byte buffer my be re-sized during serialization.
-        ByteBuffer holder = this.serializer.getByteBuffer();
-     
-        if (LOG.isDebugEnabled()) 
-        {
-        	LOG.debug ( "store id " + this.storeId + " in method storeKVPairsWithIntKeys" + " numberOfPairs is: " + numberOfPairs);
-        	//for direct buffer, array() throws unsupported operation exception. 
-            //byte[] bytesHolder = holder.array();
-            // parse the values and turn them into bytes.
-            for (int i=0; i<numberOfPairs;i++) {
+    private native void nstoreKVPairsWithByteArrayKeys(long ptrToStore, ByteBuffer holder,
+                                      int [] koffsets, int [] voffsets, int[] partitions, int numberOfPairs);
 
-                LOG.debug ( "store id " + this.storeId + " " + i + "-th key's value: " + kvalues.get(i));
-
-                int vStart=0;
-                if (i>0) {
-                    vStart = voffsets[i-1];
-                }
-                int vEnd=voffsets[i];
-                int vLength = vEnd-vStart;
-                
-                LOG.debug ("store id " + this.storeId + " value: " + i +  " has length: " + vLength + " start: " + vStart + " end: " + vEnd);
-                LOG.debug ("store id " + this.storeId + " [artition Id: " + i + " is: "  + partitions.get(i));
-            }
-
-        }
-
-        //NOTE: can not use Array, as that would require Objects.
-        for (int i=0; i<numberOfPairs; i++) {
-            this.nkvalues[i] = kvalues.get(i);
-            this.npartitions[i] = partitions.get(i);
-        }
-
-        nstoreKVPairsWithIntKeys(this.pointerToStore,
-                                    holder, this.voffsets, this.nkvalues, npartitions, numberOfPairs);
-    }
-
-    private native void nstoreKVPairsWithIntKeys (long ptrToStore, ByteBuffer holder, int[] voffsets,
-                                         int [] kvalues, int[] partitions, int numberOfPairs);
-    /**
-     * Speical case: to store the (K,V) pairs that have the K values to be with type of float
-     * combined with private member voffsets
-     * @param kvalues
-     * @param partitions
-     * @param numberOfPairs
-     */
-    @Override
-    public void storeKVPairsWithFloatKeys (ArrayList<Float> kvalues, 
-    		                                      ArrayList<Integer> partitions, int numberOfPairs) {
-    	if (!vvalueTypeStored) {
-    		throw new RuntimeException ( "store id " + this.storeId 
-    				                          + " value type should have been stored to C++ shuffle engine");
-    	}
-    	
-        ByteBuffer holder = this.serializer.getByteBuffer();
-    
-        if (LOG.isDebugEnabled()) {
-            // parse the values and turn them into bytes.
-        	LOG.debug ( "store id " + this.storeId + " in method storeKVPairsWithFloatKeys" + " numberOfPairs is: " + numberOfPairs);
-        	
-            for (int i=0; i<numberOfPairs;i++) {
-
-                LOG.debug( "store id " + this.storeId + " key: " + i  + "with value: " + kvalues.get(i));
-
-                int vStart=0;
-                if (i>0){
-                    vStart = voffsets[i-1];
-                }
-                int vEnd=voffsets[i];
-                int vLength = vEnd-vStart;
-                
-                LOG.debug("store id " + this.storeId + " value: " + i +  " has length: " + vLength + " start: " + vStart + " end: " + vEnd);
-                LOG.debug("store id " + this.storeId + " partition Id: " + i + " is: "  + partitions.get(i));
-            }
-
-        }
-
-        for (int i=0; i<numberOfPairs; i++) {
-            this.fkvalues[i] = kvalues.get(i);
-            this.npartitions[i] = partitions.get(i);
-        }
-
-        nstoreKVPairsWithFloatKeys(this.pointerToStore, holder, this.voffsets, this.fkvalues, this.npartitions, numberOfPairs);
-    }
-
-    private native void nstoreKVPairsWithFloatKeys (long ptrToStrore, ByteBuffer holder, int[] voffsets,
-                                           float[] kvalues, int[] partitions, int numberOfPairs);
-
-    /**
-     * Special case: to store the (K,V) pairs that have the K values to be with type of long
-     * combined with private member: voffsets
-     * @param kvalues
-     * @param partitions
-     * @param numberOfPairs
-     */
-    @Override
-    public void storeKVPairsWithLongKeys (ArrayList<Long> kvalues, 
-    		                                    ArrayList<Integer> partitions, int numberOfPairs) {
-
-    	if (!vvalueTypeStored) {
-    		throw new RuntimeException ("store id " + this.storeId + "value type should have been stored to C++ shuffle engine");
-    	}
-    	
-        ByteBuffer holder = this.serializer.getByteBuffer();
-       
-        if (LOG.isDebugEnabled()) {
-        	
-        	LOG.debug ( "store id " + this.storeId + " in method storeKVPairsWithLongKeys" + " numberOfPairs is: " + numberOfPairs);
-        	
-            // parse the values and turn them into bytes.
-            for (int i=0; i<numberOfPairs;i++) {
-
-                LOG.debug( "store id " + this.storeId + " key: " + i  + "with value: " + kvalues.get(i));
-
-                int vStart=0;
-                if (i>0) {
-                    vStart = voffsets[i-1];
-                }
-                int vEnd=voffsets[i];
-                int vLength = vEnd-vStart;
-               
-                LOG.debug("store id " + this.storeId + " value: " + i +  " has length: " + vLength + " start: " + vStart + " end: " + vEnd);
-                LOG.debug("store id " + this.storeId + " partition Id: " + i + " is: "  + partitions.get(i));
-            }
-
-        }
-
-
-        for (int i=0; i<numberOfPairs; i++) {
-            this.lkvalues[i] = kvalues.get(i);
-            this.npartitions[i] = partitions.get(i);
-        }
-
-        nstoreKVPairsWithLongKeys (this.pointerToStore, holder, this.voffsets, this.lkvalues, this.npartitions, numberOfPairs);
-    }
-
-    private native void nstoreKVPairsWithLongKeys (long ptrToStore, ByteBuffer holder, int[] voffsets,
-                                          long[] kvalues, int[] partitions, int numberOfPairs);
-
-    /**
-     * Special case: To serialize the (K,V) pairs that have the K values to be with type of string
-     * combined with private member: voffsets
-     * @param kvalues
-     * @param partitions
-     * @param numberOfPairs
-     */
-    @Override
-    public void storeKVPairsWithStringKeys (ArrayList<String> kvalues, 
-    		                                    ArrayList<Integer> partitions, int numberOfPairs){
-    	if (!vvalueTypeStored) {
-    		throw new RuntimeException ( "store id" + this.storeId + "value type should have been stored to C++ shuffle engine");
-    	}
-    	
-    	ByteBuffer holder = this.serializer.getByteBuffer();
-
-        if (LOG.isDebugEnabled()) {
-        	LOG.debug ( "store id " + this.storeId + " in method storeKVPairsWithStringKeys" + " numberOfPairs is: " + numberOfPairs);
-        	
-            // parse the values and turn them into bytes.
-            for (int i=0; i<numberOfPairs;i++) {
-
-                LOG.debug( "store id " + this.storeId + " key: " + i  + "with value: " + kvalues.get(i));
-
-                int vStart=0;
-                if (i>0){
-                    vStart = voffsets[i-1];
-                }
-                int vEnd=voffsets[i];
-                int vLength = vEnd-vStart;
-                
-                LOG.debug("store id " + this.storeId + " value: " + i +  " has length: " + vLength + " start: " + vStart + " end: " + vEnd);
-                LOG.debug("store id " + this.storeId + " partition Id: " + i + " is: "  + partitions.get(i));
-            }
-
-        }
-
-        for (int i=0; i<numberOfPairs; i++) {
-            this.skvalues[i] = kvalues.get(i);
-            this.slkvalues[i]=this.skvalues[i].length();
-            this.npartitions[i] = partitions.get(i);
-        }
-
-        nstoreKVPairsWithStringKeys (this.pointerToStore, holder, 
-        		                     this.voffsets, this.skvalues, this.slkvalues, this.npartitions, numberOfPairs);
-
-    }
-
-    private native void nstoreKVPairsWithStringKeys (long ptrToStore, ByteBuffer holder, int[] voffsets,
-                               String[] kvalues, int nkvalueLengths[], int partitions[], int numberOfPairs);
 
     /**
      * to sort and store the sorted data into non-volatile memory that is ready for  the reduder
@@ -604,12 +639,12 @@ public class MapSHMShuffleStore implements MapShuffleStore {
          //the status details will be updated in JNI.
          nsortAndStore(this.pointerToStore, this.numberOfPartitions, status);
          
-         //show the information 
-         long retrieved_mapStauts[] = status.getMapStatus();
-         long retrieved_shmRegionIdOfIndexChunk = status.getRegionIdOfIndexBucket();
-         long retrieved_offsetToIndexBucket = status.getOffsetOfIndexBucket();
-         
          if (LOG.isDebugEnabled()) { 
+        	 //show the information 
+             long retrieved_mapStauts[] = status.getMapStatus();
+             long retrieved_shmRegionIdOfIndexChunk = status.getRegionIdOfIndexBucket();
+             long retrieved_offsetToIndexBucket = status.getOffsetOfIndexBucket();
+             
 	         LOG.debug ("store id " + this.storeId + 
 	        		 " in sortAndStore, total number of buckets is: " + retrieved_mapStauts.length);
 	         for (int i=0; i<retrieved_mapStauts.length; i++) {
@@ -680,7 +715,8 @@ public class MapSHMShuffleStore implements MapShuffleStore {
 	        this.serializer.close();
 	
 	        if (LOG.isDebugEnabled()) {
-	        	LOG.debug("store id " + this.storeId + " value Type size: " + this.vvalueType.length);
+	        	LOG.debug("store id " + this.storeId + " value Type size: " + this.vvalueType.length
+	        			 + " value: " + getHex(this.vvalueType) );
 	        }
 	        nstoreVValueType(this.pointerToStore, this.vvalueType, this.vvalueType.length);
 	        //update the flag
@@ -726,8 +762,8 @@ public class MapSHMShuffleStore implements MapShuffleStore {
 	        this.serializer.close();
 	
 	        if (LOG.isDebugEnabled()) {
-	            LOG.debug("store id " + this.storeId + " key Type:" + new String (this.kvalueType));
-	            LOG.debug("store id " + this.storeId + " value Type: " + new String(this.vvalueType));
+	            LOG.debug("store id " + this.storeId + " key Type:" + getHex(this.kvalueType));
+	            LOG.debug("store id " + this.storeId + " value Type: " + getHex(this.vvalueType));
 	        }
 	
 	        nstoreKVTypes(this.shuffleStoreManager.getPointer(), shuffleId, mapTaskId,
@@ -764,5 +800,19 @@ public class MapSHMShuffleStore implements MapShuffleStore {
     @Override
     public int getStoreId() {
     	return this.storeId; 
+    }
+    
+    private static final String HEXES = "0123456789ABCDEF";
+
+    public static String getHex( byte [] raw ) {
+        if ( raw == null ) {
+            return null;
+        }
+        final StringBuilder hex = new StringBuilder( 2 * raw.length );
+        for ( final byte b : raw ) {
+            hex.append(HEXES.charAt((b & 0xF0) >> 4))
+                    .append(HEXES.charAt((b & 0x0F))).append(" ");
+        }
+        return hex.toString();
     }
 }

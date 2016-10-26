@@ -19,7 +19,7 @@
 #define MAPSTATUS_H_
 
 #include <glog/logging.h>
-#include <cassert>
+#include "ExtensibleByteBuffers.h"
 #include <string> 
 #include <vector>
 
@@ -122,5 +122,160 @@ struct MapStatus {
     return bucketSizes;
   }
 };
+
+
+//to define the structure that only is with variable length key.
+namespace ByteArrayKeyWithVariableLength {
+
+  /*
+   * This is designed for testing purpose to retrieve data from shared-memory,
+   * not for actual merge-sort shuffle.
+   * 
+   */
+  struct RetrievedMapBucket {
+    int reducerId; 
+    int mapId; //which bucket in th specified map to be retrieved; 
+    vector <unsigned char* > keys;
+    //we need key size
+    vector <int> keySizes;
+    vector <unsigned char* > values;
+    vector <int> valueSizes;
+
+    RetrievedMapBucket(int rId, int mId): reducerId (rId), mapId (mId) {
+      //
+    }
+
+    vector<unsigned char*>& get_keys() {
+      return keys;
+    }
+
+    vector <unsigned char* > & get_values() {
+      return values;
+    }
+
+    vector <int> & get_keySizes() {
+      return keySizes;
+    }
+
+    vector <int> & get_valueSizes () {
+      return valueSizes;
+    }
+  };
+
+ /*
+  * this is designed for real merge-sort at the reducer side.
+  */
+ struct MergeSortedMapBucketsForTesting {
+    int reducerId; 
+    //the key is with the variable length
+    vector <PositionInExtensibleByteBuffer> keys; 
+    vector <int> keySizes;   
+
+    //NOTE: for performance, should this be considered with "move" operator?
+    vector <vector <PositionInExtensibleByteBuffer>> kvaluesGroups;
+    //we will need the size to de-serialize the byte array. 
+    vector <vector <int>> kvaluesGroupSizes;
+
+    MergeSortedMapBucketsForTesting(int rId) : reducerId(rId) {
+
+   }
+  };
+};
+
+
+//to define the structure that only is with fixed length key.
+namespace LongKeyWithFixedLength {
+  /*
+   * this is designed for testing purpose, not for actual merge-sort shuffle.
+   *
+   */
+  struct RetrievedMapBucket {
+    int reducerId; 
+    int mapId; //which bucket in th specified map to be retrieved; 
+    vector <long> keys;
+    vector <unsigned char* > values;
+    vector <int> valueSizes;
+
+    RetrievedMapBucket(int rId, int mId): reducerId (rId), mapId (mId) {
+      //
+    }
+
+    vector<long>& get_keys() {
+       return keys;
+    }
+
+    vector <unsigned char* > & get_values() {
+      return values;
+    }
+
+    vector <int> & get_valueSizes () {
+        return valueSizes;
+    }
+  };
+
+  /*
+   * this is defined for testing and data inspection only.
+   */
+  struct MergeSortedMapBucketsForTesting {
+     int reducerId;
+     vector <long> keys;
+     vector <vector <PositionInExtensibleByteBuffer>> kvaluesGroups;
+     //we will need the size to de-serialize the byte array.                                                                    
+     vector <vector <int>> kvaluesGroupSizes;
+
+     MergeSortedMapBucketsForTesting(int rId) : reducerId(rId) {
+       //
+     }
+  };
+
+};
+
+//to define the structure that only is with fixed length key.
+namespace IntKeyWithFixedLength {
+  /*
+   * this is designed for testing purpose, not for actual merge-sort shuffle.
+   *
+   */
+  struct RetrievedMapBucket {
+    int reducerId; 
+    int mapId; //which bucket in th specified map to be retrieved; 
+    vector <int> keys;
+    vector <unsigned char* > values;
+    vector <int> valueSizes;
+
+    RetrievedMapBucket(int rId, int mId): reducerId (rId), mapId (mId) {
+      //
+    }
+
+    vector<int>& get_keys() {
+       return keys;
+    }
+
+    vector <unsigned char* > & get_values() {
+      return values;
+    }
+
+    vector <int> & get_valueSizes () {
+        return valueSizes;
+    }
+  };
+
+  /*
+   * this is defined for testing and data inspection only.
+   */
+  struct MergeSortedMapBucketsForTesting {
+     int reducerId;
+     vector <int> keys;
+     vector <vector <PositionInExtensibleByteBuffer>> kvaluesGroups;
+     //we will need the size to de-serialize the byte array.                                                                    
+     vector <vector <int>> kvaluesGroupSizes;
+
+     MergeSortedMapBucketsForTesting(int rId) : reducerId(rId) {
+       //
+     }
+  };
+
+};
+
 
 #endif 

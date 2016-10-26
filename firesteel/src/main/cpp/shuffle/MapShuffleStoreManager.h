@@ -45,9 +45,10 @@ class MapShuffleStoreManager {
     //ordering specify whether we need to have the map side key sorting or not.
     GenericMapShuffleStore  *createStore(int shuffleId, int id, enum KValueTypeId tid, bool ordering);
 
-    //free map shuffle's DRAM resource, with the specified pointer.
+    //only release the transient DRAM related memory resources
     void stopShuffleStore (GenericMapShuffleStore *store); 
-    
+
+    //release the NVM related memory resources 
     void shutdownShuffleStore (GenericMapShuffleStore *store); 
 
     //initialize this MapShufflstore 

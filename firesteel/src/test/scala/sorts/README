@@ -1,0 +1,8 @@
+by modifying the log4j.properties file on this test suite directory, we can control the level of logging that 
+we need for SHM shuffle.
+
+NOTE that the log4j.properties have the copy of the generic Apache Spark's core runtime turned on for 
+logging.
+
+Jun Li.
+August 4, 2015

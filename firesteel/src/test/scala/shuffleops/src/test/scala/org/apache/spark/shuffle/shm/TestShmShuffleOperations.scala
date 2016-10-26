@@ -27,6 +27,7 @@ import org.apache.spark.serializer.KryoSerializer
 import org.apache.spark.util.MutablePair
 import org.scalatest.{Matchers, FunSuite}
 import org.apache.spark._
+import org.apache.spark.internal.Logging
 import org.apache.spark.serializer._
 import com.hp.hpl.firesteel.shuffle._
 import com.esotericsoftware.kryo.Kryo
@@ -36,27 +37,31 @@ import org.apache.spark.rdd.{CoGroupedRDD, OrderedRDDFunctions, RDD, ShuffledRDD
 import scala.collection.mutable.HashSet
 import org.apache.log4j.PropertyConfigurator
 
-import com.hp.hpl.firesteel.shuffle
+import java.lang.management.ManagementFactory
 
 class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkContext with Logging {
 
   //to configure log4j properties to follow what are specified in log4j.properties
   override def beforeAll() {
-     PropertyConfigurator.configure("log4j.properties")
+     //when invoke from maven, what gets loaded is the one at: src/test/resources
+     //PropertyConfigurator.configure("log4j.properties")
   }
 
-  ignore ("groupBy with one single partition") {
+  test ("groupBy with one single partition") {
+    logInfo(" test:groupBy with one single partition at process: " + 
+           java.lang.management.ManagementFactory.getRuntimeMXBean().getName());
+
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64");
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES );
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local", "test", conf)
     val pairs = sc.parallelize(Array((1, 1), (1, 2), (1, 3), (2, 1)), 1)
@@ -72,25 +77,30 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
 
     //format for next test:
     ShuffleStoreManager.INSTANCE.formatshm()
+
   }
 
 
+  test ("groupBy with two partitions with four threads") {
 
-  ignore ("groupBy with two partitions with four threads") {
+    logInfo(" test:groupBy with two partitions with four threads at process: " + 
+           java.lang.management.ManagementFactory.getRuntimeMXBean().getName());
+
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64");
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local", "test", conf)
     val pairs = sc.parallelize(Array((2, 1),(1, 1), (1, 3), (1, 2)), 6)
+
     val groups = pairs.groupByKey(6).collect()
     assert(groups.size == 2)
     val valuesFor1 = groups.find(_._1 == 1).get._2
@@ -103,20 +113,21 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
 
     //format for next test:
     ShuffleStoreManager.INSTANCE.formatshm()
+
   }
 
-  ignore ("shuffle non-zero block size") {
+  test ("shuffle non-zero block size") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64");
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     // Use a local cluster with 2 processes to make sure there are both local and remote blocks
     sc = new SparkContext("local", "test", conf)
@@ -137,9 +148,11 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
 
     assert(c.count === 10)
 
+    val mapOutputTracker = SparkEnv.get.mapOutputTracker
     // All blocks must have non-zero size
     (0 until NUM_BLOCKS).foreach { id =>
-      val statuses = SparkEnv.get.mapOutputTracker.getServerStatuses(shuffleId, id)
+      val statuses = 
+          SharedMemoryMapOutputTracker.getMapSizesByExecutorId(shuffleId, id, mapOutputTracker)
       assert(statuses.forall(s => s._2 > 0))
     }
 
@@ -149,18 +162,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore ("shuffle serializer") {
+  test ("shuffle serializer") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64");
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     // Use a local cluster with 2 processes to make sure there are both local and remote blocks
     sc = new SparkContext("local", "test", conf)
@@ -184,18 +197,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
 
   }
 
-  ignore ("zero sized blocks") {
+  test ("zero sized blocks") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64");
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     // Use a local cluster with 2 processes to make sure there are both local and remote blocks
     sc = new SparkContext("local", "test", conf)
@@ -213,9 +226,13 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     val shuffleId = c.dependencies.head.asInstanceOf[ShuffleDependency[_, _, _]].shuffleId
     assert(c.count === 4)
 
+    val mapOutputTracker = SparkEnv.get.mapOutputTracker
     val blockSizes = (0 until NUM_BLOCKS).flatMap { id =>
-      val statuses = SparkEnv.get.mapOutputTracker.getServerStatuses(shuffleId, id)
-      statuses.map(x => x._2)
+      val statuses = 
+            SharedMemoryMapOutputTracker.getMapSizesByExecutorId(shuffleId, id, mapOutputTracker)
+      //based on the definition in SharedMemoryMapOutputTracker, which is different from MapOutputTracker.
+      statuses.map(x => x._4)
+  
     }
     val nonEmptyBlocks = blockSizes.filter(x => x > 0)
 
@@ -228,18 +245,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
 
   }
 
-  ignore ("zero sized blocks without kryo") {
+  test ("zero sized blocks without kryo") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64");
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     // Use a local cluster with 2 processes to make sure there are both local and remote blocks
     sc = new SparkContext("local", "test", conf)
@@ -255,9 +272,12 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     val shuffleId = c.dependencies.head.asInstanceOf[ShuffleDependency[_, _, _]].shuffleId
     assert(c.count === 4)
 
+    val mapOutputTracker = SparkEnv.get.mapOutputTracker
     val blockSizes = (0 until NUM_BLOCKS).flatMap { id =>
-      val statuses = SparkEnv.get.mapOutputTracker.getServerStatuses(shuffleId, id)
-      statuses.map(x => x._2)
+      val statuses =
+          SharedMemoryMapOutputTracker.getMapSizesByExecutorId(shuffleId, id, mapOutputTracker)
+      //based on the definition in SharedMemoryMapOutputTracker, which is different from MapOutputTracker.
+      statuses.map(x => x._4)
     }
     val nonEmptyBlocks = blockSizes.filter(x => x > 0)
 
@@ -269,18 +289,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore ("shuffle on mutable pairs without registration of mutable pair") {
+  test ("shuffle on mutable pairs without registration of mutable pair") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64");
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     // Use a local cluster with 2 processes to make sure there are both local and remote blocks
     sc = new SparkContext("local", "test", conf)
@@ -300,10 +320,10 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
 
   //NOTE: compare to class registration, there is no bucket size change at the map side
   //due to registration of the mutable pair.
-  ignore ("shuffle on mutable pairs with registration of mutable pair") {
+  test ("shuffle on mutable pairs with registration of mutable pair") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
@@ -311,8 +331,8 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     conf.registerKryoClasses(Array(classOf[MutablePair[Int, Int]]))
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64");
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     // Use a local cluster with 2 processes to make sure there are both local and remote blocks
     sc = new SparkContext("local", "test", conf)
@@ -331,18 +351,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
   }
 
   //NOTE: my current C++ shuffle engine should have an ascending order in terms of key ordering.
-  ignore ("sorting on mutable pairs") {
+  test ("sorting on mutable pairs") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64");
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     // Use a local cluster with 2 processes to make sure there are both local and remote blocks
     sc = new SparkContext("local", "test", conf)
@@ -362,18 +382,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore ("cogroup using mutable pairs") {
+  test ("cogroup using mutable pairs") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64");
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     // Use a local cluster with 2 processes to make sure there are both local and remote blocks
     sc = new SparkContext("local", "test", conf)
@@ -406,18 +426,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore ("subtract mutable pairs") {
+  test ("subtract mutable pairs") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64");
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     // Use a local cluster with 2 processes to make sure there are both local and remote blocks
     sc = new SparkContext("local", "test", conf)
@@ -439,18 +459,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
 
   //NOTE: the orginal size of the array is 10000, I reduced it to 100, for debugging
   //purpose.
-  ignore ("shuffle with different compression settings (SPARK-3426)") {
+  test ("shuffle with different compression settings (SPARK-3426)") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64");
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     for (
       shuffleSpillCompress <- Set(true, false);
@@ -483,18 +503,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
 
 
   //NOTE: the following is supposed to be put into a different test suite.
-  ignore ("aggregateByKey") {
+  test ("aggregateByKey") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local", "test", conf)
 
@@ -515,18 +535,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
   }
 
   //NOTE: the following is supposed to be put into a different test suite.
-  ignore ("groupByKey") {
+  test ("groupByKey") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local", "test", conf)
 
@@ -543,18 +563,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
- test ("groupByKey with duplicates") {
+  test ("groupByKey with duplicates") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local", "test", conf)
 
@@ -571,18 +591,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore ("groupByKey with negative key hash codes") {
+  test ("groupByKey with negative key hash codes") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local", "test", conf)
 
@@ -599,18 +619,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore ("groupByKey with many output partitions") {
+  test ("groupByKey with many output partitions") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local", "test", conf)
 
@@ -627,18 +647,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore ("reduceByKey") {
+  test ("reduceByKey") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local", "test", conf)
 
@@ -651,18 +671,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore ("reduceByKey with collectAsMap") {
+  test ("reduceByKey with collectAsMap") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local", "test", conf)
 
@@ -677,18 +697,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore ("reduceByKey with many output partitons") {
+  test ("reduceByKey with many output partitons") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local", "test", conf)
 
@@ -701,19 +721,19 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore ("reduceByKey with partitioner") {
+  test ("reduceByKey with partitioner") {
 
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local", "test", conf)
 
@@ -741,18 +761,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore ("join") {
+  test ("join") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local", "test", conf)
 
@@ -772,18 +792,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore ("join all-to-all") {
+  test ("join all-to-all") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local", "test", conf)
 
@@ -805,18 +825,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore  ("leftOuterJoin") {
+  test  ("leftOuterJoin") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local", "test", conf)
 
@@ -837,18 +857,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore ("rightOuterJoin") {
+  test ("rightOuterJoin") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local", "test", conf)
 
@@ -869,18 +889,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore ("fullOuterJoin") {
+  test ("fullOuterJoin") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/dev/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local", "test", conf)
 
@@ -902,18 +922,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore  ("join with no matches") {
+  test  ("join with no matches") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local", "test", conf)
 
@@ -927,18 +947,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore  ("join with many output partitions") {
+  test  ("join with many output partitions") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local", "test", conf)
 
@@ -958,18 +978,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore ("groupWith") {
+  test ("groupWith") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local", "test", conf)
 
@@ -990,18 +1010,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore ("groupWith3") {
+  test ("groupWith3") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local", "test", conf)
 
@@ -1024,18 +1044,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore ("groupWith4") {
+  test ("groupWith4") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0")
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME)
 
     sc = new SparkContext("local", "test", conf)
 
@@ -1059,18 +1079,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore ("default partitioner uses partition size") {
+  test ("default partitioner uses partition size") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0")
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME)
 
     sc = new SparkContext("local", "test", conf)
 
@@ -1087,18 +1107,18 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
     ShuffleStoreManager.INSTANCE.formatshm()
   }
 
-  ignore ("default partitioner uses largest partitioner") {
+  test ("default partitioner uses largest partitioner") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0")
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME)
 
     sc = new SparkContext("local", "test", conf)
 
@@ -1116,15 +1136,15 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
   test ("lookup with partitioner") {
     val conf = new SparkConf(false)
     //to supress a null-pointer from running the test case.
-    conf.set("spark.shuffle.manager", "shm")
+    conf.set("spark.shuffle.manager", "org.apache.spark.shuffle.shm.ShmShuffleManager")
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     //conf.set("spark.kryo.registrationRequired", "true")
     //conf.set("spark.kryo.registrator", classOf[MyRegistrator].getName)
     //serialization buffer, to be set as the string.
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related 
-    conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0")
+    conf.set("SPARK_WORKER_CORES", TestConstants.SPARK_WORKER_CORES);
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME)
 
 
     sc = new SparkContext("local", "test", conf)
@@ -1140,7 +1160,7 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
 
     assert(shuffled.partitioner === Some(p))
     assert(shuffled.lookup(1) === Seq(2))
-    //NOTE: Jun LI, we need to have sort, in multi-threading case.
+    //NOTE: we need to have sort, in multi-threading case.
     assert(shuffled.lookup(5).sorted === Seq(6,7)) 
     assert(shuffled.lookup(-1) === Seq())
 
@@ -1150,9 +1170,3 @@ class  TestShmShuffleOperations extends FunSuite with Matchers with LocalSparkCo
   }
 }
 
-
-class NonJavaSerializableClass(val value: Int) extends Comparable[NonJavaSerializableClass] {
-    override def compareTo(o: NonJavaSerializableClass): Int = {
-      value - o.value
-    }
-}

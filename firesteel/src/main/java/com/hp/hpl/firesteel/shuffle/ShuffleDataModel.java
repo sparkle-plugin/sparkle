@@ -79,7 +79,7 @@ public interface ShuffleDataModel {
         //size of each bucket on the corresponding map.
         private long sizes[];
 
-          public ReduceStatus (int mapIds[], long regionIds[], long offsetToIndexChunks[], long sizes[])  {
+        public ReduceStatus (int mapIds[], long regionIds[], long offsetToIndexChunks[], long sizes[])  {
             this.mapIds = mapIds;
             this.regionIdsOfIndexChunks =  regionIds;
             this.offsetsOfIndexChunks = offsetToIndexChunks;
@@ -107,8 +107,9 @@ public interface ShuffleDataModel {
         Float(2),
         Double(3),
         String(4),
-        Object(5),
-        Unknown(6);
+        ByteArray(5),
+        Object(6),
+        Unknown(7);
 
         int state;
         private KValueTypeId (int state) {
@@ -129,6 +130,8 @@ public interface ShuffleDataModel {
         //Note that we only need value offsets, as in each value-group, the de-serializer knows how to
         //de-serialize each value object.
         private int voffsets[];
+        //for variable keys
+        private int koffsets[];
 
         //to indicate whether the de-serialization buffer is big enough or not to hold this batch of k-vs pairs
         private boolean bufferExceeded;
@@ -157,11 +160,16 @@ public interface ShuffleDataModel {
         public void setStringKValues(String values[]) {
             this.stringKvalues = values;
         }
+        
+        //for variable keys
+        public void setKoffsets (int offsets[]) {
+            this.koffsets = offsets;
+        }
 
         public void setVoffsets (int offsets[]) {
             this.voffsets = offsets;
         }
-
+        
         public void setBufferExceeded (boolean val) { this.bufferExceeded = val; }
 
         public int[] getIntKvalues (){
@@ -180,6 +188,10 @@ public interface ShuffleDataModel {
             return this.stringKvalues;
         }
 
+        public int[] getKoffsets() {
+            return this.koffsets;
+        }
+        
         public int[] getVoffsets() {
             return this.voffsets;
         }

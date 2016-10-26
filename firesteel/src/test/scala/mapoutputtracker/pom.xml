@@ -41,7 +41,7 @@
 
   <dependencies>
 
-    <!-- Jun Li added for Spark, which get published to local .m2 repository  -->
+    <!-- added for Spark, which get published to local .m2 repository  -->
     <dependency>
           <groupId>org.apache.spark</groupId>
           <!-- search "spark core" via http://search.maven.org  -->
@@ -125,7 +125,7 @@
         </configuration>
       </plugin>
 
-      <!-- Jun Li: enable scalatest -->
+      <!-- enable scalatest -->
       <plugin>
           <groupId>org.scalatest</groupId>
           <artifactId>scalatest-maven-plugin</artifactId>

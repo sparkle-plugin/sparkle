@@ -1,18 +1,8 @@
-# * (c) Copyright 2016 Hewlett Packard Enterprise Development LP
-# *
-# * Licensed under the Apache License, Version 2.0 (the "License");
-# * you may not use this file except in compliance with the License.
-# * You may obtain a copy of the License at
-# *
-# *     http://www.apache.org/licenses/LICENSE-2.0
-# *
-# * Unless required by applicable law or agreed to in writing, software
-# * distributed under the License is distributed on an "AS IS" BASIS,
-# * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# * See the License for the specific language governing permissions and
-# * limitations under the License.
-#
-
+# $Header: Makefile,v 1.3 95/08/17 14:14:17 hmgr Exp $
+#This make file build the library libLSH.
+#Changes:
+#add -ltr flag to enable clock_monotic functions to execute. Feb 20, 2014
+#add -ltcmalloc flag to enable memory allocator of tcmalloc to replace the built-in C++ memory allocation.
 GCC=/usr/bin/g++
 
 ##DEFINED_FLAGS   = -g -DREAL_FLOAT -DDEBUG -O3 -fPIC
@@ -21,7 +11,7 @@ GCC=/usr/bin/g++
 DEFINED_FLAGS   = -march=native -Wall -fPIC -O3
 ##DEFINED_FLAGS   = -g -Wall -fPIC -O3
 ##we will need the additional includes later. 
-##added for tcmalloc, June 10, 2014.
+##added for tcmalloc. 
 RMB_INCLUDE = -I../../../../../../alps/src -I../../../../../../alps/third-party/yaml-cpp-0.5.2/include/
 
 CXXINC  = -I/usr/local/include $(RMB_INCLUDE) -I. -I./longext 

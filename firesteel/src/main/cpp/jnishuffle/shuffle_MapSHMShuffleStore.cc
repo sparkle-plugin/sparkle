@@ -22,7 +22,9 @@
 #include "MapShuffleStoreWithIntKeys.h"
 #include "MapShuffleStoreWithLongKeys.h"
 #include "MapShuffleStoreWithStringKeys.h"
+#include "MapShuffleStoreWithByteArrayKeys.h"
 #include "GenericMapShuffleStore.h"
+#include "SimpleUtils.h"
 
 using namespace std;
 
@@ -81,7 +83,19 @@ JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nin
 
     case 5:
       {
+        resultTypeId  = KValueTypeId::ByteArray;
+        break;
+      }
+
+    case 6:
+      {
         resultTypeId  = KValueTypeId::Object;
+        break;
+      }
+
+    case 7:
+      {
+        resultTypeId  = KValueTypeId::Unknown;
         break;
       }
     }
@@ -278,6 +292,29 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsto
      //release local array elements, object array is locally freed already. 
      env->ReleaseIntArrayElements(partitions, par, 0);
      env->ReleaseIntArrayElements(voffsets, vo, 0);
+}
+
+/*
+ * Class:     com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore
+ * Method:    nstoreKVPairs
+ * Signature: (JLjava/nio/ByteBuffer;[I[I[II)V
+ */
+JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nstoreKVPairsWithByteArrayKeys
+(JNIEnv *env, jobject obj, jlong ptrToStore, jobject byteBuffer, jintArray koffsets, jintArray voffsets, 
+              jintArray partitions, jint numberofPairs){
+     MapShuffleStoreWithByteArrayKey *shuffleStore =  reinterpret_cast < MapShuffleStoreWithByteArrayKey *> (ptrToStore);
+     unsigned char *buf = (unsigned char* )env->GetDirectBufferAddress(byteBuffer);
+     int  *ko = env->GetIntArrayElements(koffsets, NULL); 
+     int  *vo = env->GetIntArrayElements (voffsets, NULL);
+     int  *par =env->GetIntArrayElements (partitions, NULL);
+     
+     shuffleStore->storeKVPairsWithByteArrayKeys(buf, ko, vo, par, (int)numberofPairs);
+
+     //release local objects
+     env->ReleaseIntArrayElements(koffsets, ko, 0); 
+     env->ReleaseIntArrayElements (voffsets,vo, 0);
+     env->ReleaseIntArrayElements (partitions, par, 0);
+
 }
 
 /*
@@ -481,6 +518,94 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsor
           break; 
         }
 
+        case KValueTypeId::ByteArray:
+        {
+ 	   MapShuffleStoreWithByteArrayKey *storePtr = dynamic_cast<MapShuffleStoreWithByteArrayKey *>(gstore);
+           //sort becomes optional
+           if (storePtr->needsOrdering()) {
+	      VLOG(2) << "****writeShuffleData with byte-array keys, key ordering is required****";
+	   }
+           else {
+	      VLOG(2) << "****writeShuffleData with byte-array keys, key ordering is not required****"; 
+	   }
+           
+           //the total number of partitions are passed from the sort method, so we will need this method
+           //independent of whether ordering is required or not.
+           storePtr->sort(totalNumberOfPartitions,storePtr->needsOrdering());
+
+           MapStatus mapStatus = storePtr-> writeShuffleData(); 
+   
+           VLOG(2) << "****Finish JNI call to writeShuffleData with byte-array keys****"; 
+
+           //(1)now populate the data back. 
+           long offsetOfIndexChunk = mapStatus.getOffsetOfIndexBucket();
+           VLOG(2) << "****after writeShuffleData, offsetOfIndexChunk is: "<< (void*)offsetOfIndexChunk;
+           //(2)populate the shm region name. 
+           long shmRegionId = mapStatus.getRegionId(); //how to return this to Java
+           VLOG(2)<< "****after writeShuffleData with byte-array keys, shmRegionId is: "<< shmRegionId;
+
+           //(3)populate the passed in long array 
+           jlong *cArray = (jlong*) malloc (totalNumberOfPartitions* sizeof(long));
+           //jlong cArray[1000];
+
+           vector<int> &bucketSizes = mapStatus.getBucketSizes();
+           for (int i=0; i<totalNumberOfPartitions; i++) {
+   	      cArray[i] = (long) bucketSizes[i];
+	   }
+
+	   //now get the field id, and then set object field on it. 
+           //(4) get the reference to object's class, it is a local reference, which can not be cached. 
+           jclass cls = env->GetObjectClass(mStatus);
+           //(5) look for fields in the object. J stands for long. 
+           static jfieldID mapStatusArrayFieldId = NULL; //cached field id for mapstatuSrray
+           if (mapStatusArrayFieldId == NULL ){ 
+             mapStatusArrayFieldId = env->GetFieldID(cls, "mapStatus", "[J");
+             if (mapStatusArrayFieldId == NULL) {
+  	       LOG(FATAL) << "cannot find field: mapstatus with long type";
+               return;
+	     }
+	   }
+
+           static jfieldID regionIdOfIndexBucketFieldId = NULL; //cached field id 
+           if (regionIdOfIndexBucketFieldId == NULL) {
+             regionIdOfIndexBucketFieldId = env->GetFieldID(cls, "regionIdOfIndexBucket", "J"); 
+             if (regionIdOfIndexBucketFieldId == NULL) {
+	        LOG(FATAL) <<"cannot find field: region id of index bucket with long type";
+                return;
+	     }
+	   }
+
+           static jfieldID offsetOfIndexBucketFieldId =NULL ;//cached field id for offsetOfIndexBucket
+           if (offsetOfIndexBucketFieldId == NULL ) { 
+             offsetOfIndexBucketFieldId = env->GetFieldID(cls, "offsetOfIndexBucket", "J");
+             if (offsetOfIndexBucketFieldId == NULL) {
+	        LOG(FATAL) <<"cannot find field: offsetofIndexBucket with long type";
+                return;
+	     }
+	   }
+
+           jlongArray mstatusLongArrayVal = env->NewLongArray(totalNumberOfPartitions);
+           if (mstatusLongArrayVal == NULL) {
+	     LOG(FATAL) <<"cannot create map status long arrary";
+             return;
+	   }
+
+           env->SetLongArrayRegion(mstatusLongArrayVal, 0, totalNumberOfPartitions, cArray);
+
+           VLOG(2) << "****after writeShuffleData with long keys, assign C++ long array of map status to Java long array ***";
+
+           //(7) assign to the corresponding field 
+           env->SetObjectField (mStatus, mapStatusArrayFieldId, mstatusLongArrayVal);
+           env->SetLongField (mStatus, regionIdOfIndexBucketFieldId, shmRegionId);
+           env->SetLongField (mStatus, offsetOfIndexBucketFieldId, offsetOfIndexChunk);
+
+           VLOG(2) << "****after writeShuffleData with long keys, finish object field assignment "; 
+
+           //(8)then free the local array.
+           free (cArray);
+
+    	  break;
+        }
         case KValueTypeId::Object:
         {
           break; 
@@ -513,7 +638,11 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsto
       {
 	   MapShuffleStoreWithIntKey *storePtr = dynamic_cast<MapShuffleStoreWithIntKey *>(gstore);
            jbyte* byteArrayPtr = env->GetByteArrayElements(vvalueType, NULL);
+
            storePtr->setValueType((unsigned char*) byteArrayPtr, vtypeLength); 
+
+           VLOG(2) << "in JNI nstoreVValueType: "  << " with length: " << vtypeLength 
+                   <<" and value: " << ByteArrayUtil::to_str((unsigned char*) byteArrayPtr, vtypeLength);
 
            //free local reference
            env->ReleaseByteArrayElements(vvalueType, byteArrayPtr, 0);
@@ -526,6 +655,9 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsto
 	   MapShuffleStoreWithLongKey *storePtr = dynamic_cast<MapShuffleStoreWithLongKey *>(gstore);
            jbyte* byteArrayPtr = env->GetByteArrayElements(vvalueType, NULL);
            storePtr->setValueType((unsigned char*) byteArrayPtr, vtypeLength); 
+
+           VLOG(2) << "in JNI nstoreVValueType: "  << " with length: " << vtypeLength 
+                   <<" and value: " << ByteArrayUtil::to_str((unsigned char*) byteArrayPtr, vtypeLength);
 
            //free local reference
            env->ReleaseByteArrayElements(vvalueType, byteArrayPtr, 0);
@@ -543,6 +675,21 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsto
         }
       case KValueTypeId::String: 
         {
+          break; 
+        }
+
+      case KValueTypeId::ByteArray: 
+        {
+	   MapShuffleStoreWithByteArrayKey *storePtr = dynamic_cast<MapShuffleStoreWithByteArrayKey *>(gstore);
+           jbyte* byteArrayPtr = env->GetByteArrayElements(vvalueType, NULL);
+           storePtr->setValueType((unsigned char*) byteArrayPtr, vtypeLength); 
+
+           VLOG(2) << "in JNI nstoreVValueType: "  << " with length: " << vtypeLength
+                   <<" and value: " << ByteArrayUtil::to_str((unsigned char*) byteArrayPtr, vtypeLength);
+
+           //free local reference
+           env->ReleaseByteArrayElements(vvalueType, byteArrayPtr, 0);
+
           break; 
         }
 

@@ -18,10 +18,16 @@
 #ifndef _SIMPLE_UTILS_H_
 #define _SIMPLE_UTILS_H_
 
+#include  "ExtensibleByteBuffers.h"
+
 #include <random>
 #include <functional>
-#include  "ExtensibleByteBuffers.h"
 #include <string.h>
+#include <string.h>
+#include <sstream>
+#include <iostream>
+#include <iomanip>
+
 #include <sys/time.h>
 
 using namespace std;
@@ -70,26 +76,6 @@ public:
 }; 
 
 
-class VariableLengthKeyComparator{
- public: 
-     static bool areEqual(const PositionInExtensibleByteBuffer &av,
-		 const PositionInExtensibleByteBuffer &bv, BufferManager *mgr){
-
-       if (av.value_size != bv.value_size) {
-	 return false;
-       }
-       else {
-	 //two byte arrays have same key length.Note this buffer manager is NonExtensibleBufferManager
- 	 void *s1 = (void*)mgr->current_buffer().position_at(av.position_in_start_buffer);
-	 void *s2 = (void*)mgr->current_buffer().position_at(bv.position_in_start_buffer);
-	 int result= memcmp(s1, s2, av.value_size);
-	 bool bResult = (result==0) ? true: false;
-	 return bResult;
-       }
-     }
-
-};
-
 class TimeUtil {
 
  static const long SECOND_IN_NANOSECONDS= 1000000000;
@@ -106,6 +92,22 @@ class TimeUtil {
       temp.tv_nsec = end.tv_nsec - start.tv_nsec;
     }
     return temp;
+  }
+};
+
+class ByteArrayUtil {
+ public:
+ 
+ static string to_str (const unsigned char *buf, int size) {
+     stringstream ss;
+     if (buf != nullptr) {
+       for (int z =0; z< size; z++) {
+	 unsigned char  val = *(buf+z);
+	 ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)val;
+       }
+     }
+    
+     return ss.str();
   }
 };
 

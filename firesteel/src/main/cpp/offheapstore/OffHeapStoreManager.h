@@ -22,10 +22,10 @@
 #include <vector>
 #include "ShmAddress.h" 
 
-
 using namespace std;
 
-class OffHeapStoreSharedMemoryManager; 
+//the shared memory manager
+class ShuffleDataSharedMemoryManager;
 
 class OffHeapStoreManager {
  private:
@@ -33,7 +33,8 @@ class OffHeapStoreManager {
 
  private: 
      //NVM memory manager 
-     OffHeapStoreSharedMemoryManager *memoryManager; 
+     //OffHeapStoreSharedMemoryManager *memoryManager; 
+     ShuffleDataSharedMemoryManager *memoryManager; 
      //The NVM memory manager related information 
      string globalHeapName;  //global heap name
      int executorId;  //not the region id anymore. they are seperated.
@@ -41,6 +42,7 @@ class OffHeapStoreManager {
      uint64_t generationId;
 
      pair<size_t, size_t> processMap;
+     bool initMemory = false;
      
  public: 
 
@@ -56,13 +58,14 @@ class OffHeapStoreManager {
        }
        return m_pInstance;
      };
-    
 
-     OffHeapStoreSharedMemoryManager *getOffHeapStoreSharedMemoryManager() {
+     void initMemoryManager();
+
+     ShuffleDataSharedMemoryManager *getOffHeapStoreSharedMemoryManager() {
         return memoryManager; 
      }
 
-
+     //pass-in global heap name and executor id
      void initialize(const string& heapName, int exeId);
 
      void createAttributeTable(long addrTable, int size, ShmAddress& shmAddr);
@@ -78,6 +81,10 @@ class OffHeapStoreManager {
      //this is passed in at the iniitialiation time
      int getExecutorId () const {
        return  executorId;
+     }
+
+     pair<size_t, size_t> getProcessMap() const {
+       return  processMap;
      }
 
      uint64_t getGenerationId() const {

@@ -91,6 +91,7 @@ public:
 	}
 
 	/*
+         *this is to handle the situation: (1) ordering, and (2) aggregation are both required.
 	 *to popuate the passed-in holder by retrieving the Values and the corresonding sizes of
          *the Values,based on the provided key at the current position. Each time a value is retrieved,
          *the cursor will move to the next different key value. 
@@ -102,6 +103,13 @@ public:
 	 */
 	int retrieveKeyWithMultipleValues(IntKeyWithFixedLength::MergeSortedMapBuckets &mergeResultHolder, 
                                           size_t currentKeyTracker);
+
+        /*
+         *this is to handle the situation: (1) ordering, and (2) aggregation are both required.
+	 */
+	void retrieveKeyWithValue(
+	      IntKeyWithFixedLength::MergeSortedMapBuckets &mergeResultHolder,
+	      size_t currentKeyTracker);
 
 	/*
 	 * to shudown the channel and release the necessary resources, including the values created 
@@ -194,8 +202,15 @@ public:
 		return (!mergeSortPriorityQueue.empty()); 
 	}
 
+        /*
+         *to handle the situation that requires: (1) ordering, and (2) aggregation
+	 */
 	void getNextKeyValuesPair(IntKeyWithFixedLength::MergeSortedMapBuckets& mergedResultHolder);
-
+     
+	/*
+         *to handle the situation that requires: (1) ordering, and (2) no aggregation
+	 */
+        void getNextKeyValuePair(IntKeyWithFixedLength::MergeSortedMapBuckets& mergedResultHolder);
 
 	/*
 	 *for all of channels to be merged, to get the next unique key.  For example, key =  198. 

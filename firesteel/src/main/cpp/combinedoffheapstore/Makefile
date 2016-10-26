@@ -1,31 +1,19 @@
-# * (c) Copyright 2016 Hewlett Packard Enterprise Development LP
-# *
-# * Licensed under the Apache License, Version 2.0 (the "License");
-# * you may not use this file except in compliance with the License.
-# * You may obtain a copy of the License at
-# *
-# *     http://www.apache.org/licenses/LICENSE-2.0
-# *
-# * Unless required by applicable law or agreed to in writing, software
-# * distributed under the License is distributed on an "AS IS" BASIS,
-# * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# * See the License for the specific language governing permissions and
-# * limitations under the License.
-#
-
+# $Header: Makefile,v 1.3 95/08/17 14:14:17 hmgr Exp $
+# added tcmalloc to replace the default memory allocation in C++.
 GCC=/usr/bin/g++
 
 ##DEFINED_FLAGS   = -g -DDEBUG -O3 -fPIC
 DEFINED_FLAGS   = -march=native -Wall  -fPIC -O3
-##for sprof, turned on -g. Jun Li, 08/10/2015
+##for sprof, turned on -g. 08/10/2015
 ##DEFINED_FLAGS   = -Wall -fPIC -g
 ##we will need the additional includes later
 SHM_SRC_PATH = ../offheapstore
 JNI_SRC_PATH = ../jnioffheapstore
+SHUFFLE_SRC_PATH = ../shuffle
 
 RMB_INCLUDE = -I../../../../../../alps/src -I../../../../../../alps/third-party/yaml-cpp-0.5.2/include/
 
-CXXINC  = -I$(SHM_SRC_PATH) $(RMB_INCLUDE) -I$(JNI_SRC_PATH) -I/usr/local/include -I/usr/java/latest/include -I/usr/java/latest/include/linux
+CXXINC  = -I$(SHM_SRC_PATH) -I$(SHUFFLE_SRC_PATH) $(RMB_INCLUDE) -I$(JNI_SRC_PATH) -I/usr/local/include -I/usr/java/latest/include -I/usr/java/latest/include/linux
 CPLUSPLUS11_OPTIONS=-std=c++11
 CXXOPTS = $(CPLUSPLUS11_OPTIONS) $(DEFINED_FLAGS) $(CXXINC)
 CXX     = $(GCC)

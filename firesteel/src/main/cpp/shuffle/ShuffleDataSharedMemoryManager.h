@@ -21,8 +21,9 @@
 #include <glog/logging.h>
 #include <stdlib.h>
 #include <string>
-#include  "common/os.hh"
-#include "globalheap/globalheap.hh"
+
+#include "SharedMemoryManager.h"
+#include "SharedMemoryAllocator.h"
 
 using namespace std;
 using namespace alps;
@@ -34,6 +35,8 @@ class ShuffleDataSharedMemoryManager {
 
      //to do initialization for the memory manager.
      virtual void initialize (const string &heapName) =0;
+     //only close the heap, but not shut it down.
+     virtual void close () =0;
      virtual void shutdown() = 0;
 
      //to allocate the index chunk for the shuffle data.
@@ -46,15 +49,17 @@ class ShuffleDataSharedMemoryManager {
      
      virtual void free_datachunk(RRegion::TPtr<void>& p) =0;
 
+     virtual string get_heapname() const =0;
+
      //to retrieve the generation id associated with the current executor process.
      //for future clean-up purpose
      virtual uint64_t getGenerationId() const = 0; 
 
      //to retrieve the mapped virtual address range in this process for the shm region
-     virtual pair<size_t, size_t> get_pmap(const string &heapName) = 0;
+     virtual pair<size_t, size_t> get_pmap() = 0;
 
      //for testing purpose
-     virtual void format_shm (const string &heapName, GlobalHeap::InstanceId generationId) =0;
+     virtual void format_shm (GlobalHeap::InstanceId generationId) =0;
     
      virtual ~ShuffleDataSharedMemoryManager () {
         //do nothing.
@@ -64,6 +69,9 @@ class ShuffleDataSharedMemoryManager {
 
 
 class LocalShuffleDataSharedMemoryManager: public ShuffleDataSharedMemoryManager {
+   private: 
+       string heapName;
+   
    public:
       LocalShuffleDataSharedMemoryManager() {
 	//do nothing.
@@ -73,8 +81,12 @@ class LocalShuffleDataSharedMemoryManager: public ShuffleDataSharedMemoryManager
 	//do nothing.
       }
 
-      void initialize (const string &heapName) override {
-        //do nothing
+      void initialize (const string &heapname) override {
+        heapName = heapname;
+      }
+
+      void close () override {
+	//do nothing
       }
 
       void shutdown() override {
@@ -101,16 +113,20 @@ class LocalShuffleDataSharedMemoryManager: public ShuffleDataSharedMemoryManager
         free(nptr);  
       }
 
+      string get_heapname() const override {
+        return heapName;
+      }
+
       uint64_t getGenerationId() const override {
 	 LOG(WARNING) << "local memory allocator only supports generion id = 0";
          return 0; 
       }
 
-      void format_shm (const string &heapName, GlobalHeap::InstanceId generationId) override {
+      void format_shm (GlobalHeap::InstanceId generationId) override {
 	 LOG(WARNING) << "local memory allocator does not support formating of shm";
       }
 
-      pair<size_t, size_t> get_pmap(const string &heapName) override {
+      pair<size_t, size_t> get_pmap() override {
          LOG(WARNING) << "local memory allocator does not support memory map retrieval of shm";
          pair<size_t, size_t> result (-1, -1);
          return result;
@@ -123,146 +139,80 @@ class LocalShuffleDataSharedMemoryManager: public ShuffleDataSharedMemoryManager
 
 class RMBShuffleDataSharedMemoryManager: public ShuffleDataSharedMemoryManager {
    private:
-      GlobalHeap* heap = nullptr;
-      bool heapOpen = false;
-      string  logLevel; 
-      const string DEFAULT_LOG_LEVEL = "info"; 
-
+      SharedMemoryAllocator *allocator; 
+      string heapName;
+    
    public: 
-      RMBShuffleDataSharedMemoryManager (){
-        //retrieved the environment variable specified for rmb log level. 
-        //the default is info level
-	char *logspec = getenv ("rmb_log");
-        if (logspec != nullptr) {
-	  logLevel = logspec;
-          LOG(INFO) << "RMB log level chosen is: " << logLevel; 
-	}
-        else {
-	  logLevel = DEFAULT_LOG_LEVEL;
-          LOG(INFO) << "RMB default log level chosen is: " << logLevel; 
-	}
-        
-        PegasusOptions pgopt;
-        pgopt.debug_options.log_level = logLevel;
-	Pegasus::init(&pgopt);
-      }
-      
-      // the passed-in parameter heap name should be the full-path on the in-memory file system 
-      void initialize (const string &heapName) override {
-	 VLOG(2) << "rmb shared memory manager to be initialized for heap: "<<heapName.c_str() <<endl;
-	 GlobalHeap::open(heapName.c_str(), &heap);
-
-         //WARNING: should I do the init? 
-         if (heap != nullptr) {
-  	    heapOpen = true;
-	    LOG(INFO) << "rmb shared memory manager initialized with global heap:"<< (void*) heap << endl;
-	 }
-         else {
-            //Logging a FATAL message terminates the program (after the message is logged)
-            LOG(FATAL) << "rmb shared memory manager failed to initialize the global heap: "
-                       << heapName << endl;
-	 }
-
-      } 
-
-      void shutdown() override {
-	//what should we do the clean up.
-        if (heap != nullptr) {
-            heap->close();
-  	    heapOpen = false;
-            heap = nullptr;
-	}
-       
-        VLOG(2) << "rmb shared memory manager shutdown"<<endl;
+      RMBShuffleDataSharedMemoryManager (): 
+           allocator(nullptr) {
+	 //invoke the singleton object creation.
+	 SharedMemoryManager::getInstance();
       }
 
       virtual ~RMBShuffleDataSharedMemoryManager () {
-    	//what should we do the clean up.
-        if (heap != nullptr) {
-            heap->close();
-  	    heapOpen = true;
-            heap = nullptr;
-	}
+	 shutdown();
+      }
+      
+      // the passed-in parameter heap name should be the full-path on the in-memory file system 
+      void initialize (const string &heapname) override {
+	 heapName = heapname;
+	 allocator = SharedMemoryManager::getInstance()->registerShmRegion(heapName);
+         bool heapOpen = allocator->isHeapOpen();
+         if (heapOpen) {
+	   LOG(INFO) << "shuffle engine has opened heap: " << heapName; 
+         }
+         else {
+	   LOG(ERROR) << "shuffle engine fails to open heap: " << heapName; 
+	 }
+      } 
 
-        VLOG(2) << "rmb shared memory manager shutdown"<<endl;
+      //just close the heap, but the memory allocator is still valid
+      void close () override {
+	 allocator->close();
       }
 
+      void shutdown() override {
+        SharedMemoryManager::getInstance()->unRegisterShmRegion(heapName);
+        LOG(INFO) << "shuffle engine shutdown heap: "<< heapName;
+      }
+
+
       RRegion::TPtr<void> allocate_indexchunk(size_t size) override {
-        if (heapOpen) {
-	   return heap->malloc(size);
-	}
-        else {
-          RRegion::TPtr<void> null_ptr(-1, -1);
-	  return null_ptr;
-	}
+	 return (allocator->allocate(size));
       }
 
       //what is returned is the full virtual address on the current process
       RRegion::TPtr<void> allocate_datachunk (size_t size) override {
-	if (heapOpen) {
- 	   return heap->malloc(size);
-	}
-        else {
-           RRegion::TPtr<void> null_ptr(-1, -1);
-           return  null_ptr;
-	}
+	 return (allocator->allocate(size));
       }
 
       void free_indexchunk (RRegion::TPtr<void>& p) override {
-	if (heapOpen) {
-           heap->free(p);
-	}
-        else {
-	   LOG(ERROR) << "try to free index chunk from a closed heap";
-	}
+	 allocator->free(p);
       }
 
       void free_datachunk (RRegion::TPtr<void>& p) override {
-	if (heapOpen) {
-	    heap->free(p);
-	}
-        else {
-           LOG(ERROR) << "try to free data chunk from a closed heap";
-	}
+	 allocator->free(p);
+      }
+
+      string get_heapname() const override {
+        return allocator->getHeapName();
       }
 
       uint64_t getGenerationId() const override {
-	if (heapOpen) {
-	  GlobalHeap::InstanceId instanceId = heap->instance();
-          return instanceId;
-	}
-        else {
-           LOG(ERROR) << "try to get generation id from a closed heap";
-           return -1;
-	}
+	return (allocator->getGenerationId());
       } 
 
       //NOTE: an open heap can not be formated, as it contains the volatile data structures
       //cached from the persistent heap metadata store. 
       //but once the heap is closed, generation id can not be queried. So generation id has to
       //be passed in, or cached earlier before the heap is closed.
-      void format_shm (const string &heapName, GlobalHeap::InstanceId generationId) override {
-        if (!heapOpen) {
-	  GlobalHeap::format_instance(heapName.c_str(), generationId);
-	}
-        else {
-          LOG(ERROR) << "try to format an open heap, close it first...";
-	}
+      void format_shm (GlobalHeap::InstanceId generationId) override {
+	 allocator->format_shm(generationId);
       }
 
       //retrieve the map only when the heap is open 
-      pair<size_t, size_t> get_pmap(const string &heapName) override {
-	if (heapOpen) {
-          // this check assumes the heap file is mapped as a single contiguous memory region
-	  ProcessMap pmap;
-	  pair<size_t, size_t> pmap_range = pmap.range(heapName);
-          return pmap_range;           
-	}
-        else {
-	  LOG(ERROR) << "try to retrieve memory map when the heap is closed." ; 
-	  pair<size_t, size_t> pmap_range (-1, -1);
-          return pmap_range;
-	}
+      pair<size_t, size_t> get_pmap() override {
+	return (allocator->get_pmap());
       }
 };
 #endif  /*SHUFFLE_DATA_SHARED_MEMORY_MANAGER_H*/

@@ -46,8 +46,17 @@ class ReduceShuffleStoreManager {
     
     //the buffer manager will have to be created before the redue shuffle store. and thus the life time of 
     //the buffer manager will need to be seperately controlled.
+    //we have buffer manager, key buffer manager, and value buffer manager. some reduce shuffle store use
+    //two buffer managers, and some only use the value buffer manager.
+    //(1) only one buffer manager, which is the value buffer manager.
     GenericReduceShuffleStore *createStore(int shuffleId, int id, 
 			   const ReduceStatus &status, int partitions, ExtensibleByteBuffers *bMgr,
+		           unsigned char *passThroughBuffer, size_t buff_capacity,
+		           enum KValueTypeId tid, bool ordering, bool aggregation);
+    //(2) two buffer managers are used.
+    GenericReduceShuffleStore *createStore(int shuffleId, int id, 
+			   const ReduceStatus &status, int partitions, 
+                           ExtensibleByteBuffers *kBMgr, ExtensibleByteBuffers *vBMgr, 
 		           unsigned char *passThroughBuffer, size_t buff_capacity,
 		           enum KValueTypeId tid, bool ordering, bool aggregation);
 

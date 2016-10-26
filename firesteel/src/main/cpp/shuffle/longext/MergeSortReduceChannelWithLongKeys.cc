@@ -54,6 +54,23 @@ void MergeSortReduceChannelWithLongKeys::getNextKeyValuePair() {
 }
 
 
+//one key with one value, to handle the situation: (1) ordering, and (2) no aggregation.
+void MergeSortReduceChannelWithLongKeys::retrieveKeyWithValue(
+		     LongKeyWithFixedLength::MergeSortedMapBuckets &mergeResultHolder, 
+                     size_t currentKeyTracker) {
+
+  mergeResultHolder.addValueOnKey(currentKeyTracker, currentValueValue);
+  if (hasNext()) {
+    getNextKeyValuePair();
+  }
+  else {
+    kvalueCursor = -1; //set to an invalidated state
+    currentValueSize = -1;//set to an invalidated state 
+  }
+}
+
+
+//one key with multiple values, to handle the situation: (1) ordering with (2) aggregation
 int MergeSortReduceChannelWithLongKeys::retrieveKeyWithMultipleValues(
 		     LongKeyWithFixedLength::MergeSortedMapBuckets &mergeResultHolder, 
                      size_t currentKeyTracker) {
@@ -104,7 +121,40 @@ void MergeSortReduceEngineWithLongKeys::init() {
 
 }
 
+
 /*
+ * to handle the situation: both (1) ordering and (2)no aggregation.
+ *
+ * for the top() element, find out which channel it belongs to, then after the channel to advance to fill
+ * the elements that has the same value as the current top element, then fill the vacant by pushing into 
+ * the next key value, if it exists. we return, until the top() return is different from the current value
+ */
+void MergeSortReduceEngineWithLongKeys::getNextKeyValuePair(
+                              LongKeyWithFixedLength::MergeSortedMapBuckets& mergedResultHolder) {
+  const PriorityQueuedElementWithLongKey& topElement = mergeSortPriorityQueue.top();
+  int channelNumber = topElement.mergeChannelNumber;
+  currentMergedKey = topElement.keyValue;
+
+  //add the key first, then the key-associated values from all of the channels.
+  //NOTE: after adding key, the key tracker already advance to next value, which is next key position. 
+  size_t currentKeyTracker=mergedResultHolder.addKey(currentMergedKey);
+  mergeSortPriorityQueue.pop();
+ 
+  MergeSortReduceChannelWithLongKeys &channel = mergeSortReduceChannels[channelNumber];
+  channel.retrieveKeyWithValue(mergedResultHolder, currentKeyTracker);
+
+  //if channel is empty, value size is -1.
+  if (channel.getCurrentValueSize() != -1) {
+    long nextKeyValue = channel.getCurrentKeyValue();
+    PriorityQueuedElementWithLongKey replacementElement(channelNumber, nextKeyValue);
+    mergeSortPriorityQueue.push(replacementElement);
+  }
+
+}
+
+/*
+ * to handle the situation: both (1) ordering and (2) aggregation.
+ *
  * for the top() element, find out which channel it belongs to, then after the channel to advance to fill
  * the elements that has the same value as the current top element, then fill the vacant by pushing into 
  * the next key value, if it exists. we return, until the top() return is different from the current value
@@ -114,7 +164,7 @@ void MergeSortReduceEngineWithLongKeys::getNextKeyValuesPair(
 	//clean up the value and value size holder. the values held in the vector will have the occupied memory
 	//freed in some other places and other time.
 	//currentMergedValues.clear();
-	PriorityQueuedElementWithLongKey topElement = mergeSortPriorityQueue.top();
+	const PriorityQueuedElementWithLongKey& topElement = mergeSortPriorityQueue.top();
 	int channelNumber = topElement.mergeChannelNumber;
 	currentMergedKey = topElement.keyValue;
 

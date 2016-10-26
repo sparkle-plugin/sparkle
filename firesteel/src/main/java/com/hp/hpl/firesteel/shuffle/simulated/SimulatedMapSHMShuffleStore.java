@@ -18,17 +18,13 @@
 package com.hp.hpl.firesteel.shuffle.simulated;
 
 import com.esotericsoftware.kryo.Kryo;
-import com.esotericsoftware.kryo.io.ByteBufferOutput;
 import com.hp.hpl.firesteel.shuffle.MapShuffleStore;
 import com.hp.hpl.firesteel.shuffle.ShuffleDataModel;
-import com.hp.hpl.firesteel.shuffle.ShuffleStoreManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Arrays;
-
 
 /**
  * To Simulated Map Shuffle Store. For unit testing purpose.
@@ -62,42 +58,7 @@ public class SimulatedMapSHMShuffleStore  implements MapShuffleStore {
 
     }
 
-
-    @Override
-    public void serializeKVPairs (ArrayList<Object> kvalues, ArrayList<Object> vvalues, int numberOfPairs) {
-    }
-
-
-    @Override
-    public void storeKVPairs(ArrayList<Integer> partitions, int numberOfPairs) {
-    }
-
-
-    @Override
-    public void serializeVs (ArrayList<Object> vvalues, int numberOfVs) {
-
-    }
-
-
-    @Override
-    public void storeKVPairsWithIntKeys (ArrayList<Integer> kvalues, ArrayList<Integer> partitions, int numberOfPairs) {
-    }
-
-
-    @Override
-    public void storeKVPairsWithFloatKeys (ArrayList<Float> kvalues, ArrayList<Integer> partitions, int numberOfPairs) {
-    }
-
-    @Override
-    public void storeKVPairsWithLongKeys (ArrayList<Long> kvalues, ArrayList<Integer> partitions, int numberOfPairs) {
-
-    }
-
-    @Override
-    public void storeKVPairsWithStringKeys (ArrayList<String> kvalues, ArrayList<Integer> partitions, int numberOfPairs){
-
-    }
-
+   
     @Override
     public ShuffleDataModel.MapStatus sortAndStore() {
       return null;
@@ -138,4 +99,16 @@ public class SimulatedMapSHMShuffleStore  implements MapShuffleStore {
     public int getStoreId() {
     	return 0; 
     }
+
+	@Override
+	public void serializeKVPair(Object kvalue, Object vvalue, int partitionId,
+			int indexPosition, int scode) {
+		 throw new UnsupportedOperationException("not yet implemented.");
+	}
+
+	@Override
+	public void storeKVPairs(int numberOfPairs, int scode) {
+		 throw new UnsupportedOperationException("not yet implemented.");
+		
+	}
 }

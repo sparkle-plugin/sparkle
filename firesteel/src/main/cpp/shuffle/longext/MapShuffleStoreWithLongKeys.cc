@@ -250,7 +250,8 @@ MapStatus MapShuffleStoreWithLongKey::writeShuffleData() {
   //of partition size = 0.
   if (sizeOfVCclassDefinition > 0) {
     pic = writer.write_indexchunk_valueclass(pic, vvTypeDefinition.definition, sizeOfVCclassDefinition);
-    VLOG(2) << " write index chunk vclass definition with size: " << sizeOfVCclassDefinition;
+    VLOG(2) << " write index chunk vclass definition with size: " << sizeOfVCclassDefinition
+            << " and value: " << ByteArrayUtil::to_str(vvTypeDefinition.definition, sizeOfVCclassDefinition);
   }
 
   //write the number of the total buckets.
@@ -266,12 +267,6 @@ MapStatus MapShuffleStoreWithLongKey::writeShuffleData() {
   //initialize per-partiton size and offset.
   for (int i =0; i<totalNumberOfPartitions; i++) {
      partitionChunkSizes.push_back(0);
-     dataChunkOffsets.push_back(nullptr); //zero, basically. 
-  }
-
-  //initialize per-partiton size and offset.
-  for (int i =0; i<totalNumberOfPartitions; i++) {
-     partitionChunkSizes.push_back(0);
      //PPtr's version of null pointer
      allocatedDataChunkOffsets.push_back(global_null_ptr); 
      dataChunkOffsets.push_back(nullptr); 
@@ -280,13 +275,13 @@ MapStatus MapShuffleStoreWithLongKey::writeShuffleData() {
   //NOTE: keys only contain the partitions that have non-zero buckets.  Some partitions can be
   //empty partition identifier will be from 0 to totalNumberOfPartitions-1 
   //we will do the first scan to determine how many data chunks and their sizes that we need. 
-  size_t longkey_size=sizeof(long);
+  size_t longkey_size=sizeof(long); 
   size_t vvalue_size = sizeof(int);
 
   for (size_t p =0; p<sizeTracker; ++p) {
     int partition = keys[p].partition; 
     int currentSize = partitionChunkSizes[partition];
-    //each bucket is the array of: <k integer value, value-size, value-in-byte-array>
+    //each bucket is the array of: <k long value, value-size, value-in-byte-array>
     currentSize +=(longkey_size + vvalue_size + keys[p].value_tracker.value_size);
     partitionChunkSizes[partition]=currentSize; 
   }

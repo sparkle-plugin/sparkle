@@ -38,6 +38,7 @@ public class ShuffleStoreManager {
 
     private long pointerToShuffleManager =0;
     private ShuffleStoreTracker shuffleStoreTracker = null; 
+    private ShuffleResourceTracker shuffleResourceTracker = null; 
 
     private boolean initialized =false;
     private boolean shutdown =false;
@@ -46,7 +47,7 @@ public class ShuffleStoreManager {
     private int executorId; //as the region id.
     private int maximumNumberOfTaskThreads; 
 
-    //the atomitic counter to be assigned to each task thread as the logic thread identifier 
+    //the atomic counter to be assigned to each task thread as the logic thread identifier 
     private AtomicInteger logicalThreadCounter = new AtomicInteger(0);
     
     //this is a single object.
@@ -98,7 +99,10 @@ public class ShuffleStoreManager {
     	this.executorId = executorId; 
     	
         if (!initialized) {
-        	this.shuffleStoreTracker = new ShuffleStoreTracker(maximumNumberOfThreads);
+            LOG.info("perform actual initialization for ShuffleStoreManager");
+
+            this.shuffleStoreTracker = new ShuffleStoreTracker(maximumNumberOfThreads);
+            this.shuffleResourceTracker = new ShuffleResourceTracker(); 
             this.pointerToShuffleManager = ninitialize(globalHeapName,  executorId);
             initialized = true;
         }
@@ -114,6 +118,10 @@ public class ShuffleStoreManager {
     	return this.shuffleStoreTracker;
     }
     
+    public ShuffleResourceTracker getShuffleResourceTracker() {
+    	return this.shuffleResourceTracker; 
+    }
+    
     /**
      * initialize the store manager, and get back the pointer of the manager.
      * @return
@@ -127,10 +135,20 @@ public class ShuffleStoreManager {
      * @return
      */
     public synchronized void shutdown() {
-        if (!shutdown) {
-            shutdown(this.pointerToShuffleManager);
-            shutdown = true;
-        }
+	if (initialized) {
+           if (!shutdown) {
+              shutdown(this.pointerToShuffleManager);
+            
+              this.shuffleResourceTracker.shutdown();
+              this.shuffleStoreTracker.shutdown();
+
+              shutdown = true;
+
+              LOG.info("ShuffleStoreManager shutdown....");
+           }
+	}
+        //so that shuffle manager can re-start again if necessary (for testing purpose)
+        initialized = false;
     }
 
     private native void shutdown(long ptrToShuffleManager);
@@ -164,7 +182,14 @@ public class ShuffleStoreManager {
      * 
      */
     public void formatshm () {
-        nformatshm(this.pointerToShuffleManager);
+        if (initialized && (!shutdown)) {
+           LOG.info("to format shm region....");
+           nformatshm(this.pointerToShuffleManager);
+        }
+        else {
+	   LOG.warn("to format shm region with ShuffleStoreManager not initialized or already shutdown....");
+        }
+
     }
     
     private native void nformatshm (long ptrToShuffleManager); 

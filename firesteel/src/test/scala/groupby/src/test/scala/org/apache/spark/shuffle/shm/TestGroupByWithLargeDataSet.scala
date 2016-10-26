@@ -25,6 +25,7 @@ import java.nio.ByteBuffer
 import org.apache.spark.SparkContext._
 import org.scalatest.{Matchers, FunSuite}
 import org.apache.spark._
+import org.apache.spark.internal.Logging
 
 import org.apache.spark.rdd.{CoGroupedRDD, OrderedRDDFunctions, RDD, ShuffledRDD, SubtractedRDD}
 
@@ -55,7 +56,7 @@ class  TestGroupByWithLargeDataSet extends FunSuite with Matchers with LocalSpar
     conf.set("spark.shuffle.shm.serializer.buffer.max.mb", "64")
     //added by Retail Memory Broker related
     conf.set("SPARK_WORKER_CORES", "10");
-    conf.set("spark.executor.shm.globalheap.name", "global0");
+    conf.set("spark.executor.shm.globalheap.name", TestConstants.GLOBAL_HEAP_NAME);
 
     sc = new SparkContext("local[9]", "test", conf)
     //sc = new SparkContext("local", "test", conf)

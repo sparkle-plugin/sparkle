@@ -20,9 +20,11 @@ package org.apache.spark.shuffle.shm
 import java.nio.ByteBuffer
 
 import org.scalatest.FunSuite
-import org.apache.spark.{SparkEnv, SparkContext, LocalSparkContext, SparkConf, Logging}
+import org.apache.spark.{SparkEnv, SparkContext, LocalSparkContext, SparkConf}
+import org.apache.spark.internal.Logging
 import org.apache.spark.serializer._
 import com.hp.hpl.firesteel.shuffle._
+import com.hp.hpl.firesteel.shuffle.ThreadLocalShuffleResourceHolder._
 import com.esotericsoftware.kryo.Kryo;
 import org.apache.spark.serializer._
 
@@ -32,16 +34,41 @@ class TestKryoSerializer extends FunSuite with LocalSparkContext with Logging {
 
   private def getThreadLocalShuffleResource(conf: SparkConf):
       ThreadLocalShuffleResourceHolder.ShuffleResource = {
-        val SERIALIZATION_BUFFER_SIZE: Int =
+       val SERIALIZATION_BUFFER_SIZE: Int =
                     conf.getInt("spark.shuffle.shm.serializer.buffer.max.mb",64)*1024*1024;
-        val resourceHolder= new ThreadLocalShuffleResourceHolder()
-        var shuffleResource = resourceHolder.getResource()
+               val resourceHolder= new ThreadLocalShuffleResourceHolder()
+       var shuffleResource =
+           ShuffleStoreManager.INSTANCE.getShuffleResourceTracker.getIdleResource()
+
        if (shuffleResource == null) {
-         val kryoInstance =  new KryoSerializer(SparkEnv.get.conf).newKryo(); //per-thread
-         val serializationBuffer = ByteBuffer.allocateDirect(SERIALIZATION_BUFFER_SIZE)
-         resourceHolder.initilaze(kryoInstance, serializationBuffer)
-         shuffleResource = resourceHolder.getResource()
+          //still at the early thread launching phase for the executor, so create new resource
+          val kryoInstance =  new KryoSerializer(SparkEnv.get.conf).newKryo(); //per-thread
+          val serializationBuffer = ByteBuffer.allocateDirect(SERIALIZATION_BUFFER_SIZE)
+          if (serializationBuffer.capacity() != SERIALIZATION_BUFFER_SIZE ) {
+            logError("Thread: " + Thread.currentThread().getId
+              + " created serialization buffer with size: "
+              + serializationBuffer.capacity()
+              + ": FAILED to match: " + SERIALIZATION_BUFFER_SIZE)
+          }
+          else {
+            logInfo("Thread: " + + Thread.currentThread().getId
+              + " created the serialization buffer with size: "
+              + SERIALIZATION_BUFFER_SIZE + ": SUCCESS")
+          }
+          //add a logical thread id
+          val logicalThreadId = ShuffleStoreManager.INSTANCE.getlogicalThreadCounter ()
+          shuffleResource = new ShuffleResource(
+              new ReusableSerializationResource (kryoInstance, serializationBuffer),
+              logicalThreadId)
+          //add to the resource pool
+          ShuffleStoreManager.INSTANCE.getShuffleResourceTracker.addNewResource(shuffleResource)
+          //push to the thread specific storage for future retrieval in the same task execution.
+          resourceHolder.initialize (shuffleResource)
+
+          logDebug ("Thread: " + Thread.currentThread().getId
+            + " create kryo-bytebuffer resource for mapper writer")
        }
+
        shuffleResource
   }
 
@@ -415,7 +442,8 @@ class TestKryoSerializer extends FunSuite with LocalSparkContext with Logging {
     val threadLocalResources = getThreadLocalShuffleResource(conf)
     val serializer =
       new MapSHMShuffleStore.LocalKryoByteBufferBasedSerializer (
-        threadLocalResources.getKryoInstance, threadLocalResources.getByteBuffer)
+        threadLocalResources.getSerializationResource.getKryoInstance,
+        threadLocalResources.getSerializationResource.getByteBuffer)
 
     //val serializer =
     // new MapSHMShuffleStore.LocalKryoByteBufferBasedSerializer(
@@ -451,7 +479,8 @@ class TestKryoSerializer extends FunSuite with LocalSparkContext with Logging {
 
     val deserializer =
       new ReduceSHMShuffleStore.LocalKryoByteBufferBasedDeserializer(
-        threadLocalResources.getKryoInstance, threadLocalResources.getByteBuffer)
+        threadLocalResources.getSerializationResource.getKryoInstance, 
+        threadLocalResources.getSerializationResource.getByteBuffer)
     deserializer.init();
     val retrievedClass = deserializer.readClass()
 
@@ -493,55 +522,5 @@ class TestKryoSerializer extends FunSuite with LocalSparkContext with Logging {
     }
     )
 
-  }
-}
-
-
-
-//NOTE: the following way of defining a class is also correct.
-/*
-class RankingsClass (pagerankx: Int,
-      pageurlx: String,
-      avgdurationx: Int)  {
-
-  var pagerank: Int = pagerankx
-  var pageurl: String = pageurlx
-  var avgduration: Int = avgdurationx
-
-  def equals(other: RankingsClass): Boolean = {
-    if (this.pagerank == other.pagerank && this.pageurl == other.pageurl
-      && this.avgduration == other.avgduration) {
-      true
-    }
-    else {
-      false
-    }
-  }
-}
-*/
-
-//NOTE: this is a more concise way to define a simple data class
-case class RankingsClass (pagerank: Int,
-                          pageurl: String,
-                          avgduration: Int)
-
-//NOTE: both case class and register class will have to be at the outer-most class scope. If I
-//move these two into the test class private scope. It does not work!!!
-class MyRegistrator extends KryoRegistrator with Logging  {
-
-  def registerClasses (k: Kryo) {
-    var registered = false
-    try {
-      k.register(classOf[RankingsClass])
-      registered = true
-    }
-    catch {
-      case e: Exception =>
-        logError ("fails to register vis MyRegistrator", e)
-    }
-
-    if (registered) {
-      logInfo("in test suite, successfully register class RankingsClass")
-    }
   }
 }

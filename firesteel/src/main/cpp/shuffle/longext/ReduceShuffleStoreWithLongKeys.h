@@ -31,54 +31,6 @@
 
 using namespace std;
 
-//to define the structure that only is with fixed length key.
-namespace LongKeyWithFixedLength {
-  /*
-   * this is designed for testing purpose, not for actual merge-sort shuffle.
-   *
-   */
-  struct RetrievedMapBucket {
-    int reducerId; 
-    int mapId; //which bucket in th specified map to be retrieved; 
-    vector <long> keys;
-    vector <unsigned char* > values;
-    vector <int> valueSizes;
-
-    RetrievedMapBucket(int rId, int mId): reducerId (rId), mapId (mId) {
-      //
-    }
-
-    vector<long>& get_keys() {
-       return keys;
-    }
-
-    vector <unsigned char* > & get_values() {
-      return values;
-    }
-
-    vector <int> & get_valueSizes () {
-        return valueSizes;
-    }
-  };
-
-  /*
-   * this is defined for testing and data inspection only.
-   */
-  struct MergeSortedMapBucketsForTesting {
-     int reducerId;
-     vector <long> keys;
-     vector <vector <PositionInExtensibleByteBuffer>> kvaluesGroups;
-     //we will need the size to de-serialize the byte array.                                                                    
-     vector <vector <int>> kvaluesGroupSizes;
-
-     MergeSortedMapBucketsForTesting(int rId) : reducerId(rId) {
-       //
-     }
-  };
-
-};
-
-
 class  ReduceShuffleStoreWithLongKey: public GenericReduceShuffleStore {
  private:
      //Note: this becomes a local copy.
@@ -97,7 +49,6 @@ class  ReduceShuffleStoreWithLongKey: public GenericReduceShuffleStore {
 
      bool engineInitialized;
      
-
      //for key value type definition 
      KValueTypeDefinition kvTypeDefinition;
 

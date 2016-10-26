@@ -134,8 +134,19 @@ IntKeyWithFixedLength::MergeSortedMapBucketsForTesting
   mergedResultHolder.reset();
 
   if (orderingRequired) {
-    while (theMergeSortEngine.hasNext()) {
+    //to handle two situations
+    if (aggregationRequired){
+      //situation 1: both ordering and aggregation are requird.
+      while (theMergeSortEngine.hasNext()) {
 	  theMergeSortEngine.getNextKeyValuesPair(mergedResultHolder);
+      }
+    }
+    else {
+      //situation 2: ordering, but no aggregation, is required, an example is sort operator: sortBy, 
+      //which does not require aggregation. 
+      while (theMergeSortEngine.hasNext()) {
+        theMergeSortEngine.getNextKeyValuePair(mergedResultHolder);
+      }
     }
   }
   else if (aggregationRequired){
@@ -150,7 +161,9 @@ IntKeyWithFixedLength::MergeSortedMapBucketsForTesting
   }
 
   //then formulate the returned results.
-  //(1) the keys and for each key the position pointers.
+  //the keys and for each key the position pointers.
+  //NOTE: for merge-sort, this will work for sort + no aggregation and sort + aggregation.
+  //as for no aggregation, start_position and end_position will be identical.
   for (size_t kt =0; kt< mergedResultHolder.keyTracker; kt++) {
       IntKeyWithFixedLength::MergeSortedKeyTracker currentKeyTracker = mergedResultHolder.keys[kt];
       int key = currentKeyTracker.key;
@@ -171,7 +184,6 @@ IntKeyWithFixedLength::MergeSortedMapBucketsForTesting
       result.kvaluesGroupSizes.push_back(valueSizesForKey);    
   }
     
-
   //NOTE: we will need to move shutdown of merge-sort engine into somewhere else. 
   //at this time, merge-sort engine uses malloc to hold the returned Value's value.
   //mergeSortEngine.shutdown(); 
@@ -212,7 +224,10 @@ int ReduceShuffleStoreWithIntKey::retrieve_mergesortedmapbuckets (int max_number
     //make sure that the holder is really activated. 
     CHECK(mergedResultHolder.isActivated());
 
-    while (theMergeSortEngine.hasNext()) {
+    if (aggregationRequired) {
+      LOG(INFO) << "merge-sort engine choose ordering-and-aggregation path";
+
+      while (theMergeSortEngine.hasNext()) {
            //note that, each time, the merged result holder will be reset.
 	  theMergeSortEngine.getNextKeyValuesPair(mergedResultHolder);
 
@@ -244,7 +259,45 @@ int ReduceShuffleStoreWithIntKey::retrieve_mergesortedmapbuckets (int max_number
           if (numberOfRetrievedKeys == max_number) {
 	     break;
 	  }
+      }
     }
+    else {
+      LOG(INFO) << "merge-sort engine choose ordering-no-aggregation path";
+      while (theMergeSortEngine.hasNext()) {
+        //note that, each time, the merged result holder will be reset.
+        theMergeSortEngine.getNextKeyValuePair(mergedResultHolder);
+
+        if (VLOG_IS_ON(2)) {
+            vector<PositionInExtensibleByteBuffer> retrieved_values;
+            //NOTE: once the key is added, the key tracker moves to the next position.
+            size_t keyValueTracker = mergedResultHolder.keyTracker -1; 
+            size_t start_position =  mergedResultHolder.keys[keyValueTracker].start_position;
+            size_t end_position =    mergedResultHolder.keys[keyValueTracker].end_position;
+            //size_t positionBufferTracker = mergedResultHolder.positionBufferTracker;
+
+	    int keyValue = theMergeSortEngine.getCurrentMergedKey();
+            VLOG(2) << "**retrieve mergesort mapbuckets**" << " key is: " << keyValue << endl;
+            VLOG(2) << "**retrieve mergesort mapbuckets**" << " start position is: " << start_position
+                    << " end position is" << end_position <<endl;
+
+            //if the key does not have any values to be associated with, start_position is the same as end_position.
+            for (size_t p = start_position; p <end_position; p++) {
+	      retrieved_values.push_back(mergedResultHolder.kvaluesGroups[p]);
+	    }
+
+            VLOG(2) << "**retrieve mergesort mapbuckets**" << " value size is: " << retrieved_values.size();
+	}
+
+	//retrieved values are already reflected in the merged result holder already.
+	//resultHolder.kvaluesGroups.push_back(retrieved_values);
+
+        numberOfRetrievedKeys++;
+        if (numberOfRetrievedKeys == max_number) {
+	     break;
+	}
+
+      }//end while
+    }//end ordering-no-aggregation
   }
   else if (aggregationRequired){
      VLOG(2) << "**aggregation required. choose hash-map engine"<<endl; 

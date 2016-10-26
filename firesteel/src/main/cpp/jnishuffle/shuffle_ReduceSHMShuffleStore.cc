@@ -21,6 +21,7 @@
 #include "ReduceShuffleStoreManager.h"
 #include "ReduceShuffleStoreWithIntKeys.h"
 #include "ReduceShuffleStoreWithLongKeys.h"
+#include "ReduceShuffleStoreWithByteArrayKeys.h"
 #include "ExtensibleByteBuffers.h"
 #include "GenericReduceShuffleStore.h"
 
@@ -179,9 +180,10 @@ JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_
   unsigned char *buffer = (unsigned char*)env->GetDirectBufferAddress(byteBuffer);
   //Herein ExtensibleByteBuffer is used, this is different to hold the Java side's direct bytebuffer
   //for de-serialization.
-  ExtensibleByteBuffers *bufferManager = nullptr;
+  ExtensibleByteBuffers *kBufferManager = nullptr;
+  ExtensibleByteBuffers *vBufferManager = nullptr;
   if (ordering || aggregation) {
-    bufferManager = 
+    kBufferManager = 
                 new ExtensibleByteBuffers (SHMShuffleGlobalConstants::BYTEBUFFER_HOLDER_SIZE);
   }
 
@@ -224,7 +226,7 @@ JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_
              GenericReduceShuffleStore *gResultStore=
                  reduceShuffleStoreManager->createStore(shuffleId, reducerId,
 					 status, numberOfPartitions, 
-                                         bufferManager, 
+                                         kBufferManager, 
 					 buffer, bufferCapacity,
                                          kd.typeId, ordering, aggregation);
 	     ReduceShuffleStoreWithIntKey *resultStore = dynamic_cast<ReduceShuffleStoreWithIntKey*>(gResultStore);
@@ -243,7 +245,7 @@ JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_
              GenericReduceShuffleStore *gResultStore=
                  reduceShuffleStoreManager->createStore(shuffleId, reducerId,
 					 status, numberOfPartitions, 
-                                         bufferManager, 
+                                         kBufferManager, 
 					 buffer, bufferCapacity,
                                          kd.typeId, ordering, aggregation);
 	     ReduceShuffleStoreWithLongKey *resultStore = dynamic_cast<ReduceShuffleStoreWithLongKey*>(gResultStore);
@@ -272,6 +274,32 @@ JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_
           break; 
         }
 
+        case KValueTypeId::ByteArray:
+        {
+          VLOG(2) << "****in JNI mergeSort(identified with byte-array keys), kvalue type id is identified with byte-array***";
+
+          //kBufferManager is created early in this method.
+
+          vBufferManager = 
+                new ExtensibleByteBuffers (SHMShuffleGlobalConstants::BYTEBUFFER_HOLDER_SIZE);
+
+
+          GenericReduceShuffleStore *gResultStore=
+                 reduceShuffleStoreManager->createStore(shuffleId, reducerId,
+					 status, numberOfPartitions, 
+					 kBufferManager, vBufferManager,
+					 buffer, bufferCapacity,
+                                         kd.typeId, ordering, aggregation);
+	     ReduceShuffleStoreWithByteArrayKey *resultStore = dynamic_cast<ReduceShuffleStoreWithByteArrayKey*>(gResultStore);
+             //pointer will be free when stop the shuffle store
+             resultStore->setVVTypeDefinition(vd); 
+             reduceShuffleStore=(void*)resultStore;
+             
+             VLOG(2) << "****in JNI mergeSort(identified with byte-array keys), finished creating reduce shuffle store***";
+
+
+	  break;
+        }
         case KValueTypeId::Object:
         {
           VLOG(2) << "****in JNI mergeSort(identified with object keys), kvalue type id is identified with Object***";
@@ -553,72 +581,141 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
 JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_nGetSimpleKVPairsWithIntKeys
 (JNIEnv *env, jobject obj, jlong ptrToReduceStore, jobject byteBuffer, jint buffer_capacity,
    jint kmaxNumbers, jobject mergeResult){
+   int actualNumberOfKVs = 0;
+
    //NOTE: byteBuffer is not used, this is assumed to be the same as the one passed to sort-merge method call earlier.
    VLOG(2) << "***in JNI getSimpleKVPairs with int keys, specified max number of KVs: " << kmaxNumbers;
-   
-   //for sure, this is an int-key based reduce shuffle store, return the actual number of the k-vs.
-   ReduceShuffleStoreWithIntKey *shuffleStoreWithIntKeys = 
-                       reinterpret_cast<ReduceShuffleStoreWithIntKey *> (ptrToReduceStore);
-  // we can not do reset for each batch of get k-values, as the pending elements in merge-sort network 
-  // requires the buffer to not be reset (otherwise, data gets lost).
-  // BufferManager *bufferManager = shuffleStoreWithIntKeys->getBufferMgr();
-  // bufferManager->reset(); //to get to the ByteBuffer's initial position.
- 
-  //before doing the retrieval, make sure that the buffer capacity is what has been allocated and expected with size
-  //CHECK_EQ (buffer_capacity, SHMShuffleGlobalConstants::SERIALIZATION_BUFFER_SIZE)
-  //         << " buffer capacity: " << buffer_capacity << " does not match specifized size: "
-  //         << SHMShuffleGlobalConstants::SERIALIZATION_BUFFER_SIZE;
 
-  //int reducerId = shuffleStoreWithIntKeys->getReducerId();
-  IntKeyWithFixedLength::PassThroughMapBuckets& resultHolder = shuffleStoreWithIntKeys->getPassThroughResultHolder();
-  shuffleStoreWithIntKeys->reset_passthroughresult();
-  int actualNumberOfKVs = shuffleStoreWithIntKeys->retrieve_passthroughmapbuckets(kmaxNumbers);
-
-  VLOG(2) << "***in JNI getSimpleKVPairs with int keys, finished retrieve_passthroughmapbuckets with number of KVs: " << actualNumberOfKVs;   
-
-  //(1)now populate the merge result object. it is with type of ShuffleDataModel.MergeSortedResult in Java.
-  jclass cls = env->GetObjectClass(mergeResult);
-  //(2)I only care about int kValues  and Voffsets and bufferExceeded
-  static jfieldID kvaluesArrayFieldId = NULL;
-  if (kvaluesArrayFieldId == NULL) {
+   //(1)now populate the merge result object. it is with type of ShuffleDataModel.MergeSortedResult in Java.
+   jclass cls = env->GetObjectClass(mergeResult);
+   //(2)I only care about int kValues  and Voffsets and bufferExceeded
+   static jfieldID kvaluesArrayFieldId = NULL;
+   if (kvaluesArrayFieldId == NULL) {
      kvaluesArrayFieldId = env->GetFieldID(cls, "intKvalues", "[I");
      if (kvaluesArrayFieldId == NULL) {
        LOG(FATAL) << "can not find field intKvalues" <<endl;
        return -1;
      }
-  }
+   }
 
-  static jfieldID voffsetsArrayFieldId = NULL; 
-  if (voffsetsArrayFieldId == NULL) {
+   static jfieldID voffsetsArrayFieldId = NULL; 
+   if (voffsetsArrayFieldId == NULL) {
      voffsetsArrayFieldId = env->GetFieldID(cls, "voffsets", "[I");
      if (voffsetsArrayFieldId  == NULL) {
       LOG(FATAL) << "can not find field voffsets" <<endl;
       return -1;
      }
-  }
+   }
 
-  //"Z" is for boolean
-  static jfieldID bufferExceededFieldId = NULL; 
-  if (bufferExceededFieldId == NULL) {
-    bufferExceededFieldId  = env->GetFieldID(cls, "bufferExceeded", "Z");
-    if (bufferExceededFieldId == NULL) {
-      LOG(FATAL) << "can not find field bufferExceeded" << endl;
-      return -1;
-    }
-  }
-  
-  //(2.1) kvalues
-  jint *kvaluesArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
-  //(2.2)voffsets. Note that we only need the boundary of the values, as the de-serialization
-  // knows how to do de-serialization by itself.
-  jint *voffsetsArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
+   //"Z" is for boolean
+   static jfieldID bufferExceededFieldId = NULL; 
+   if (bufferExceededFieldId == NULL) {
+     bufferExceededFieldId  = env->GetFieldID(cls, "bufferExceeded", "Z");
+     if (bufferExceededFieldId == NULL) {
+        LOG(FATAL) << "can not find field bufferExceeded" << endl;
+        return -1;
+     }
+   }
+   
+   //for sure, this is an int-key based reduce shuffle store, return the actual number of the k-vs.
+   ReduceShuffleStoreWithIntKey *shuffleStoreWithIntKeys = 
+                       reinterpret_cast<ReduceShuffleStoreWithIntKey *> (ptrToReduceStore);
 
-  for (int i=0; i<actualNumberOfKVs; i++) {
-     kvaluesArray[i]= resultHolder.keyAndValueOffsets[i].key;
-     voffsetsArray[i] = resultHolder.keyAndValueOffsets[i].offset;
-     VLOG(3) << "***in JNI getSimpleKVPairs with int keys, retrieved i=" << i<< " key value: " << kvaluesArray[i]
+   jint *kvaluesArray = nullptr;
+   jint *voffsetsArray = nullptr;
+
+   // we can not do reset for each batch of get k-values, as the pending elements in merge-sort network 
+   // requires the buffer to not be reset (otherwise, data gets lost).
+   // BufferManager *bufferManager = shuffleStoreWithIntKeys->getBufferMgr();
+   // bufferManager->reset(); //to get to the ByteBuffer's initial position.
+ 
+   //before doing the retrieval, make sure that the buffer capacity is what has been allocated and expected with size
+   //CHECK_EQ (buffer_capacity, SHMShuffleGlobalConstants::SERIALIZATION_BUFFER_SIZE)
+   //         << " buffer capacity: " << buffer_capacity << " does not match specifized size: "
+   //         << SHMShuffleGlobalConstants::SERIALIZATION_BUFFER_SIZE;
+
+   //int reducerId = shuffleStoreWithIntKeys->getReducerId();
+   jboolean bufferExceeded = false; 
+
+   bool ordering = shuffleStoreWithIntKeys->needsOrdering(); 
+   if (!ordering) {
+     IntKeyWithFixedLength::PassThroughMapBuckets& resultHolder = shuffleStoreWithIntKeys->getPassThroughResultHolder();
+     shuffleStoreWithIntKeys->reset_passthroughresult();
+     actualNumberOfKVs = shuffleStoreWithIntKeys->retrieve_passthroughmapbuckets(kmaxNumbers);
+
+     VLOG(2) << "***in JNI getSimpleKVPairs with int keys, finished retrieve_passthroughmapbuckets with number of KVs: " << actualNumberOfKVs;   
+
+     //(2.1) kvalues
+     kvaluesArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
+     //(2.2)voffsets. Note that we only need the boundary of the values, as the de-serialization
+     // knows how to do de-serialization by itself.
+     voffsetsArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
+
+     for (int i=0; i<actualNumberOfKVs; i++) {
+       kvaluesArray[i]= resultHolder.keyAndValueOffsets[i].key;
+       voffsetsArray[i] = resultHolder.keyAndValueOffsets[i].offset;
+       VLOG(3) << "***in JNI getSimpleKVPairs with int keys, retrieved i=" << i<< " key value: " << kvaluesArray[i]
              << " with value at offset: " << voffsetsArray[i] <<endl;
-  }
+     }
+   }//end of direct pass-through
+   else {
+     IntKeyWithFixedLength::MergeSortedMapBuckets& resultHolder = shuffleStoreWithIntKeys->getMergedResultHolder();
+     shuffleStoreWithIntKeys->reset_mergedresult();
+     actualNumberOfKVs = shuffleStoreWithIntKeys->retrieve_mergesortedmapbuckets(kmaxNumbers);
+     VLOG(2) << "***in JNI getSimpleKVPairs with byte-array keys, ordering required, finished retrieving number of KVs: "
+	     << actualNumberOfKVs;
+
+     //(2.1) kvalues
+     kvaluesArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
+     //(2.2)voffsets. Note that we only need the boundary of the values, as the de-serialization
+     // knows how to do de-serialization by itself.
+     voffsetsArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
+
+     unsigned char *buffer = (unsigned char*)env->GetDirectBufferAddress(byteBuffer);
+     int accumulated_size=0;
+
+     ExtensibleByteBuffers *vBufferManager = shuffleStoreWithIntKeys->getBufferMgr();
+
+     for (int i=0; i<actualNumberOfKVs; i++) {
+       kvaluesArray[i] = resultHolder.keys[i].key;
+       {
+         size_t start_position = resultHolder.keys[i].start_position;
+         size_t end_position = resultHolder.keys[i].end_position;
+	 //check buffer will not exceed
+         int vaccumulated_size = accumulated_size;
+	 //I only have one position in this situation
+         for (size_t p=start_position; p<end_position;p++) {
+	   vaccumulated_size  += resultHolder.kvaluesGroups[p].value_size;
+	 }
+
+         if (vaccumulated_size > buffer_capacity) {
+	   bufferExceeded = true;
+           break; 
+	 }
+
+	 VLOG(3) << "***in JNI getSimpleKVPairs with int keys, retrieved i=" << i
+		 << " key value with corresponding value vector: ";
+         //I only have one position in  this situation, thus start-position equal to end_position
+	 VLOG(3) <<" ***in JNI getSimpleKVPairs with int keys, start-position= " << start_position
+		 << " end-position = " << end_position;
+
+         //I only have one position in this situation
+         for (size_t p=start_position; p<end_position; p++) {
+	   VLOG(3) << "*****in JNI getKVPairs with int keys, retrieved position: "
+		   << resultHolder.kvaluesGroups[p].position_in_start_buffer
+		   << " value size: " << resultHolder.kvaluesGroups[p].value_size;
+           vBufferManager->retrieve(resultHolder.kvaluesGroups[p], buffer);
+           buffer += resultHolder.kvaluesGroups[p].value_size; 
+           accumulated_size  += resultHolder.kvaluesGroups[p].value_size;
+
+	 }
+
+         voffsetsArray[i] = accumulated_size;
+	 VLOG(3) << "*****in JNI getKVPairs with int keys, final offset position: " << voffsetsArray[i];
+       }
+     }
+     
+   }//end of ordering.
 
   jintArray kvaluesArrayVal = env->NewIntArray(actualNumberOfKVs);
   if (kvaluesArrayVal == NULL) {
@@ -647,7 +744,6 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
 
   //(4) convert the values stored in extensible server to the linear single bytebuffer.
   //at this time, I take care of it by throw exception when the buffer exceeds the size at C++ side.
-  jboolean bufferExceeded = false; 
   env->SetBooleanField(mergeResult, bufferExceededFieldId, bufferExceeded);
 
   VLOG(2) << "***in JNI getKVPairs with int keys, retrieved buffer exceeded flag is: " << (bool)bufferExceeded;
@@ -910,7 +1006,6 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
 
 }
 
-
 /*
  * Class:     com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore
  * Method:    nGetSimpleKVPairsWithLongKeys
@@ -958,6 +1053,11 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
  
    GenericReduceShuffleStore *gResultStore = 
                        reinterpret_cast<GenericReduceShuffleStore *> (ptrToReduceStore);
+
+   jlong *kvaluesArray = nullptr;
+   jint *voffsetsArray = nullptr;
+   jboolean bufferExceeded = false;
+   
    if (gResultStore->getKValueType().typeId == KValueTypeId::Long) {
      //for sure, this is an int-key based reduce shuffle store, return the actual number of the k-vs.
      ReduceShuffleStoreWithLongKey *shuffleStoreWithLongKeys = 
@@ -973,26 +1073,91 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
      //        << SHMShuffleGlobalConstants::SERIALIZATION_BUFFER_SIZE;
  
      //int reducerId = shuffleStoreWithIntKeys->getReducerId();
-     LongKeyWithFixedLength::PassThroughMapBuckets& resultHolder = shuffleStoreWithLongKeys->getPassThroughResultHolder();
-     shuffleStoreWithLongKeys->reset_passthroughresult();
-     actualNumberOfKVs = shuffleStoreWithLongKeys->retrieve_passthroughmapbuckets(kmaxNumbers);
+     bool ordering = shuffleStoreWithLongKeys->needsOrdering();
+    
+     if (!ordering) {
+        LongKeyWithFixedLength::PassThroughMapBuckets& resultHolder = shuffleStoreWithLongKeys->getPassThroughResultHolder();
+        shuffleStoreWithLongKeys->reset_passthroughresult();
+        actualNumberOfKVs = shuffleStoreWithLongKeys->retrieve_passthroughmapbuckets(kmaxNumbers);
 
-     VLOG(2) << "***in JNI getSimpleKVPairs with long keys, finished retrieve_passthroughmapbuckets with number of KVs: " 
+        VLOG(2) << "***in JNI getSimpleKVPairs with long keys, finished retrieve_passthroughmapbuckets with number of KVs: " 
              << actualNumberOfKVs;   
 
   
-    //(2.1) kvalues
-    jlong *kvaluesArray = (jlong*) malloc (actualNumberOfKVs* sizeof(long));
-    //(2.2)voffsets. Note that we only need the boundary of the values, as the de-serialization
-    // knows how to do de-serialization by itself.
-    jint *voffsetsArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
+        //(2.1) kvalues
+        kvaluesArray = (jlong*) malloc (actualNumberOfKVs* sizeof(long));
+        //(2.2)voffsets. Note that we only need the boundary of the values, as the de-serialization
+        // knows how to do de-serialization by itself.
+        voffsetsArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
 
-    for (int i=0; i<actualNumberOfKVs; i++) {
-       kvaluesArray[i]= resultHolder.keyAndValueOffsets[i].key;
-       voffsetsArray[i] = resultHolder.keyAndValueOffsets[i].offset;
-       VLOG(3) << "***in JNI getSimpleKVPairs with long keys, retrieved i=" << i<< " key value: " << kvaluesArray[i]
-             << " with value at offset: " << voffsetsArray[i] <<endl;
-    }
+        for (int i=0; i<actualNumberOfKVs; i++) {
+            kvaluesArray[i]= resultHolder.keyAndValueOffsets[i].key;
+            voffsetsArray[i] = resultHolder.keyAndValueOffsets[i].offset;
+            VLOG(3) << "***in JNI getSimpleKVPairs with long keys, retrieved i=" << i<< " key value: " << kvaluesArray[i]
+                    << " with value at offset: " << voffsetsArray[i] <<endl;
+        }
+     }
+     else{
+         LongKeyWithFixedLength::MergeSortedMapBuckets& resultHolder= shuffleStoreWithLongKeys->getMergedResultHolder();
+         shuffleStoreWithLongKeys->reset_mergedresult();
+         actualNumberOfKVs = shuffleStoreWithLongKeys->retrieve_mergesortedmapbuckets(kmaxNumbers);
+         VLOG(2) << "***in JNI getSimpleKVPairs with long keys, ordering required, finished retrieving number of KVs: "
+		 << actualNumberOfKVs;
+
+        //(2.1) kvalues
+        kvaluesArray = (jlong*) malloc (actualNumberOfKVs* sizeof(long));
+        //(2.2)voffsets. Note that we only need the boundary of the values, as the de-serialization
+        // knows how to do de-serialization by itself.
+        voffsetsArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
+        
+	unsigned char *buffer = (unsigned char*)env->GetDirectBufferAddress(byteBuffer);
+	int accumulated_size=0;
+
+	ExtensibleByteBuffers *vBufferManager = shuffleStoreWithLongKeys->getBufferMgr();
+
+        for (int i=0; i<actualNumberOfKVs; i++) {
+	  kvaluesArray[i] = resultHolder.keys[i].key;
+          {
+	    size_t start_position = resultHolder.keys[i].start_position;
+	    size_t end_position = resultHolder.keys[i].end_position;
+	    //check buffer will not exceed                                                                                                                
+	    int vaccumulated_size = accumulated_size;
+	    //I only have one position in this situation                                                                                                  
+	    for (size_t p=start_position; p<end_position;p++) {
+	      vaccumulated_size  += resultHolder.kvaluesGroups[p].value_size;
+	    }
+
+	    if (vaccumulated_size > buffer_capacity) {
+	      bufferExceeded = true;
+	      break;
+	    }
+
+	    VLOG(3) << "***in JNI getSimpleKVPairs with long keys, retrieved i=" << i
+		    << " key value with corresponding value vector: ";
+	    //I only have one position in  this situation, thus start-position equal to end_position 
+            VLOG(3) <<" ***in JNI getSimpleKVPairs with long keys, start-position= " << start_position
+		    << " end-position = " << end_position;
+            
+            //I only have one position in this situation 
+            for (size_t p=start_position; p<end_position; p++) {
+	      VLOG(3) << "*****in JNI getKVPairs with long keys, retrieved position: "
+		      << resultHolder.kvaluesGroups[p].position_in_start_buffer
+		      << " value size: " << resultHolder.kvaluesGroups[p].value_size;
+	      vBufferManager->retrieve(resultHolder.kvaluesGroups[p], buffer);
+	      buffer += resultHolder.kvaluesGroups[p].value_size;
+	      accumulated_size  += resultHolder.kvaluesGroups[p].value_size;
+
+	    }
+
+            voffsetsArray[i] = accumulated_size;
+	    VLOG(3) << "*****in JNI getKVPairs with long keys, final offset position: " << voffsetsArray[i];
+
+
+	  }
+	}
+         
+     }//end of ordering
+
 
     jlongArray kvaluesArrayVal = env->NewLongArray(actualNumberOfKVs);
     if (kvaluesArrayVal == NULL) {
@@ -1021,7 +1186,7 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
 
     //(4) convert the values stored in extensible server to the linear single bytebuffer.
     //at this time, I take care of it by throw exception when the buffer exceeds the size at C++ side.
-    jboolean bufferExceeded = false; 
+    bufferExceeded = false; 
     env->SetBooleanField(mergeResult, bufferExceededFieldId, bufferExceeded);
 
     VLOG(2) << "***in JNI getKVPairs with long keys, retrieved buffer exceeded flag is: " << (bool)bufferExceeded;
@@ -1038,10 +1203,10 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
     // actualNumberOfKVs is 0;   
   
     //(2.1) kvalues
-    jlong *kvaluesArray = (jlong*) malloc (actualNumberOfKVs* sizeof(long));
+    kvaluesArray = (jlong*) malloc (actualNumberOfKVs* sizeof(long));
     //(2.2)voffsets. Note that we only need the boundary of the values, as the de-serialization
     // knows how to do de-serialization by itself.
-    jint *voffsetsArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
+    voffsetsArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
 
     jlongArray kvaluesArrayVal = env->NewLongArray(actualNumberOfKVs);
     if (kvaluesArrayVal == NULL) {
@@ -1070,7 +1235,7 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
 
     //(4) convert the values stored in extensible server to the linear single bytebuffer.
     //at this time, I take care of it by throw exception when the buffer exceeds the size at C++ side.
-    jboolean bufferExceeded = false; 
+    bufferExceeded = false; 
     env->SetBooleanField(mergeResult, bufferExceededFieldId, bufferExceeded);
 
     VLOG(2) << "***in JNI getSimpleKVPairs with long keys, retrieved buffer exceeded flag is: " << (bool)bufferExceeded;
@@ -1080,6 +1245,499 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
     free(voffsetsArray);
   
     VLOG(2) << "***in JNI getSimpleKVPairs with long keys, free allocated kvalues and voffsets array: "; 
+  }
+
+  return actualNumberOfKVs;
+}
+
+
+/*
+ * Class:     com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore
+ * Method:    nGetKVPairsWithByteArrayKeys
+ * Signature: (JLjava/nio/ByteBuffer;IILcom/hp/hpl/firesteel/shuffle/ShuffleDataModel/MergeSortedResult;)I
+ */
+JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_nGetKVPairsWithByteArrayKeys
+(JNIEnv *env, jobject obj, jlong ptrToReduceStore, jobject byteBuffer, jint buffer_capacity,
+ jint kmaxNumbers, jobject mergeResult) {
+
+  int actualNumberOfKVs =0;
+  //NOTE: byteBuffer is not used, this is assumed to be the same as the one passed to sort-merge method call earlier.
+  VLOG(2) << "***in JNI getKVPairs with byte-array keys, specified max number of KVs: " << kmaxNumbers;
+
+  //(1)now populate the merge result object. it is with type of ShuffleDataModel.MergeSortedResult in Java.
+  jclass cls = env->GetObjectClass(mergeResult);
+  //(2)I only care about int kValues  and Voffsets and bufferExceeded
+  static jfieldID koffsetsArrayFieldId = NULL;
+  if (koffsetsArrayFieldId  == NULL) {
+     koffsetsArrayFieldId  = env->GetFieldID(cls, "koffsets", "[I");
+     if (koffsetsArrayFieldId == NULL) {
+       LOG(FATAL) << "can not find field koffsets" <<endl;
+       return -1;
+     }
+  }
+
+  static jfieldID voffsetsArrayFieldId = NULL; 
+  if (voffsetsArrayFieldId == NULL) {
+     voffsetsArrayFieldId = env->GetFieldID(cls, "voffsets", "[I");
+     if (voffsetsArrayFieldId  == NULL) {
+      LOG(FATAL) << "can not find field voffsets" <<endl;
+      return -1;
+     }
+  }
+
+  //"Z" is for boolean
+  static jfieldID bufferExceededFieldId = NULL; 
+  if (bufferExceededFieldId == NULL) {
+    bufferExceededFieldId  = env->GetFieldID(cls, "bufferExceeded", "Z");
+    if (bufferExceededFieldId == NULL) {
+      LOG(FATAL) << "can not find field bufferExceeded" << endl;
+      return -1;
+    }
+  }
+
+  GenericReduceShuffleStore *gResultStore = 
+                  reinterpret_cast<GenericReduceShuffleStore *> (ptrToReduceStore);
+  if (gResultStore->getKValueType().typeId == KValueTypeId::ByteArray) {
+   
+     //for sure, this is a long-key based reduce shuffle store, return the actual number of the k-vs.
+     ReduceShuffleStoreWithByteArrayKey *shuffleStoreWithByteArrayKeys = 
+                       dynamic_cast<ReduceShuffleStoreWithByteArrayKey *> (gResultStore);
+    // we can not do reset for each batch of get k-values, as the pending elements in merge-sort network 
+    // requires the buffer to not be reset (otherwise, data gets lost).
+    // BufferManager *bufferManager = shuffleStoreWithIntKeys->getBufferMgr();
+    // bufferManager->reset(); //to get to the ByteBuffer's initial position.
+
+    //int reducerId = shuffleStoreWithIntKeys->getReducerId();
+    ByteArrayKeyWithVariableLength::MergeSortedMapBuckets& resultHolder=
+                                              shuffleStoreWithByteArrayKeys->getMergedResultHolder();
+    shuffleStoreWithByteArrayKeys->reset_mergedresult();
+    actualNumberOfKVs = shuffleStoreWithByteArrayKeys->retrieve_mergesortedmapbuckets(kmaxNumbers);
+
+    VLOG(2) << "***in JNI getKVPairs with byte-array keys, finished retrieve_mergesort with number of KVs: " 
+            << actualNumberOfKVs;   
+
+   
+    unsigned char *buffer = (unsigned char*)env->GetDirectBufferAddress(byteBuffer);
+  
+    //(2.1) koffsets.
+    jint *koffsetsArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
+    jint *voffsetsArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
+
+    jboolean bufferExceeded = false;
+    int accumulated_size = 0;
+
+    ExtensibleByteBuffers *kBufferManager = shuffleStoreWithByteArrayKeys->getKBufferMgr();
+    ExtensibleByteBuffers *vBufferManager = shuffleStoreWithByteArrayKeys->getVBufferMgr();
+
+
+    for (int i=0; i<actualNumberOfKVs; i++) {
+      PositionInExtensibleByteBuffer cachedKeyValue = resultHolder.keys[i].cachedKeyValue;      
+      kBufferManager->retrieve(cachedKeyValue, buffer);
+      buffer += cachedKeyValue.value_size;
+      accumulated_size   += cachedKeyValue.value_size; 
+
+      if (accumulated_size > buffer_capacity) {
+	bufferExceeded = true;
+	break; //abort the update of the bytebuffer array.                                                                                
+      }
+
+      koffsetsArray[i] = accumulated_size; 
+
+      VLOG(3) << "***in JNI getKVPairs with byte-array keys, retrieved i=" << i
+              << " key value size: " << cachedKeyValue.value_size;
+
+      //now the values corresponding to the same K.
+      {
+	size_t start_position = resultHolder.keys[i].start_position;
+        size_t end_position = resultHolder.keys[i].end_position;
+        //check buffer will not exceed
+        int vaccumulated_size = accumulated_size; 
+        for (size_t p=start_position; p<end_position; p++) {
+	  vaccumulated_size += resultHolder.kvaluesGroups[p].valueSize;
+	}
+
+	if (vaccumulated_size > buffer_capacity) {
+          bufferExceeded = true;
+          break; //abort the update of the bytebuffer array
+	}
+
+	VLOG(3) << "***in JNI getKVPairs with byte-array keys, retrieved i=" << i 
+                << " key value with corresponding value vector: ";
+	VLOG(3) <<" ***in JNI getKVPairs with byte-array keys, start-position= " << start_position 
+                << " end-position = " << end_position;
+
+	for (size_t p=start_position; p<end_position; p++) {
+	  VLOG(3) << "*****in JNI getKVPairs with byte-array keys, retrieved position: "
+		  << resultHolder.kvaluesGroups[p].cachedValueValue.position_in_start_buffer
+                  << " value size: " << resultHolder.kvaluesGroups[p].cachedValueValue.value_size;
+
+          //NOTE: by-pass value reading from channel earlier, thus we will need to do memcpy here
+          //vBufferManager->retrieve(resultHolder.kvaluesGroups[p].cachedValueValue, buffer);
+          memcpy(buffer, resultHolder.kvaluesGroups[p].value,resultHolder.kvaluesGroups[p].cachedValueValue.value_size);
+	  buffer += resultHolder.kvaluesGroups[p].cachedValueValue.value_size;
+          accumulated_size += resultHolder.kvaluesGroups[p].cachedValueValue.value_size;
+	}
+
+        voffsetsArray[i]=accumulated_size;
+        VLOG(3) << "*****in JNI getKVPairs with byte-array keys, final offset position: " << voffsetsArray[i];
+
+      }
+
+   }
+
+    VLOG(2) << "***in JNI getKVPairs with byte-array keys, finished assigning the koffsets and voffsets array***";   
+
+
+    jintArray koffsetsArrayVal = env->NewIntArray(actualNumberOfKVs);
+    if (koffsetsArrayVal == NULL) {
+      LOG(FATAL) << "can not create koffsets int array" << endl;
+      return -1;
+    }
+    env->SetIntArrayRegion(koffsetsArrayVal, 0, actualNumberOfKVs, koffsetsArray); 
+
+    VLOG(2) << "***in JNI getKVPairs with byte-array keys, finished assigning koffset array***";   
+
+    jintArray voffsetsArrayVal = env->NewIntArray(actualNumberOfKVs);
+    if (voffsetsArrayVal == NULL) {
+      LOG(FATAL) << "can not create voffsets int array" << endl;
+      return -1;
+    }
+    env->SetIntArrayRegion(voffsetsArrayVal, 0, actualNumberOfKVs, voffsetsArray); 
+
+    VLOG(2) << "***in JNI getKVPairs with byte-array keys, finished assigning voffset array***";   
+
+
+    //(3) set all of the fields
+    env->SetObjectField (mergeResult, koffsetsArrayFieldId, koffsetsArrayVal);
+    env->SetObjectField (mergeResult, voffsetsArrayFieldId, voffsetsArrayVal);
+    //with extensible bytebuffer manager, we will never get the buffer exceeded. what will be extended
+    //might be the non-extensible byte buffer that works a a carrier for this batch of the data.
+    env->SetBooleanField(mergeResult, bufferExceededFieldId, bufferExceeded);
+
+    VLOG(2) << "***in JNI getKVPairs with long keys, retrieved buffer exceeded flag is: " << (bool)bufferExceeded;
+ 
+    //(4) finally free some intermediate pointers
+    free(koffsetsArray);
+    free(voffsetsArray);
+  
+    VLOG(2) << "***in JNI getKVPairs with byte-array keys, free allocated koffsets and voffsets array: "; 
+  }
+  else {
+     //NOTE: what is done in this scope is to create empty arrays as the return to the Java side.
+ 
+     VLOG(2) << "***in Jni GetKVParis with byte-array keys, actual reduce-shuffle store is with int-key due to empty buckets";
+     //actualNumberOfKVs is 0.
+     VLOG(2) << "***in JNI getKVPairs with byte-array keys, finished retrieve_mergesort with number of KVs: " << actualNumberOfKVs;   
+  
+     //(2.1) kvalue offset with int type
+     jint *koffsetsArray = (jint*) malloc(actualNumberOfKVs*sizeof(int));
+     jintArray koffsetsArrayVal = env->NewIntArray(actualNumberOfKVs);
+     if (koffsetsArrayVal == NULL) {
+       LOG(FATAL) << "can not create koffsets int array" << endl;
+       return -1;
+     }
+     env->SetIntArrayRegion(koffsetsArrayVal, 0, actualNumberOfKVs, koffsetsArray); 
+
+     VLOG(2) << "***in JNI getKVPairs with long keys, finished assigning the koffsets array***";   
+
+     //(2.2)voffsets. Note that we only need the boundary of the two value groups, as the de-serialization
+     // knows how to do de-serialization by itself.
+     jint *voffsetsArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
+
+     //(3) convert the values stored in extensible server to the linear single bytebuffer.
+     jboolean bufferExceeded = false;
+
+     VLOG(2) << "***in JNI getKVPairs with long keys, finished constructing the voffset array***";   
+
+     jintArray voffsetsArrayVal = env->NewIntArray(actualNumberOfKVs);
+     if (voffsetsArrayVal == NULL) {
+       LOG(FATAL) << "can not create voffsets int array" << endl;
+       return -1;
+     }
+     env->SetIntArrayRegion(voffsetsArrayVal, 0, actualNumberOfKVs, voffsetsArray); 
+
+     VLOG(2) << "***in JNI getKVPairs with byte-array keys, finished assigning voffset array***";   
+
+     //(3) set all of the fields
+     env->SetObjectField (mergeResult, koffsetsArrayFieldId, koffsetsArrayVal);
+     env->SetObjectField (mergeResult, voffsetsArrayFieldId, voffsetsArrayVal);
+     //with extensible bytebuffer manager, we will never get the buffer exceeded. what will be extended
+     //might be the non-extensible byte buffer that works a a carrier for this batch of the data.
+     env->SetBooleanField(mergeResult, bufferExceededFieldId, bufferExceeded);
+
+     VLOG(2) << "***in JNI getKVPairs with byte-array keys, retrieved buffer exceeded flag is: " << (bool)bufferExceeded;
+ 
+     //(4) finally free some intermediate pointers
+     free(koffsetsArray);
+     free(voffsetsArray);
+  
+     VLOG(2) << "***in JNI getKVPairs with byte-array keys, free allocated kvalues and voffsets array: "; 
+
+  }
+
+  return actualNumberOfKVs;
+
+}
+
+
+/*
+ * Class:     com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore
+ * Method:    nGetSimpleKVPairsWithByteArrayKeys
+ * Signature: (JLjava/nio/ByteBuffer;IILcom/hp/hpl/firesteel/shuffle/ShuffleDataModel/MergeSortedResult;)I
+ */
+JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_nGetSimpleKVPairsWithByteArrayKeys
+(JNIEnv *env, jobject obj, jlong ptrToReduceStore, jobject byteBuffer, jint buffer_capacity, 
+  jint kmaxNumbers, jobject mergeResult){
+
+  int actualNumberOfKVs = 0;
+
+  //NOTE: byteBuffer is not used, this is assumed to be the same as the one passed to sort-merge method call earlier.
+  VLOG(2) << "***in JNI getSimpleKVPairs with byte-array keys, specified max number of KVs: " << kmaxNumbers;
+ 
+   //(1)now populate the merge result object. it is with type of ShuffleDataModel.MergeSortedResult in Java.
+  jclass cls = env->GetObjectClass(mergeResult);
+  //(2)I only care about int kValues  and Voffsets and bufferExceeded
+  static jfieldID koffsetsArrayFieldId = NULL;
+  if (koffsetsArrayFieldId  == NULL) {
+     koffsetsArrayFieldId  = env->GetFieldID(cls, "koffsets", "[I");
+     if (koffsetsArrayFieldId == NULL) {
+       LOG(FATAL) << "can not find field koffsets" <<endl;
+       return -1;
+     }
+  }
+
+  static jfieldID voffsetsArrayFieldId = NULL; 
+  if (voffsetsArrayFieldId == NULL) {
+     voffsetsArrayFieldId = env->GetFieldID(cls, "voffsets", "[I");
+     if (voffsetsArrayFieldId  == NULL) {
+      LOG(FATAL) << "can not find field voffsets" <<endl;
+      return -1;
+     }
+  }
+
+  //"Z" is for boolean
+  static jfieldID bufferExceededFieldId = NULL; 
+  if (bufferExceededFieldId == NULL) {
+    bufferExceededFieldId  = env->GetFieldID(cls, "bufferExceeded", "Z");
+    if (bufferExceededFieldId == NULL) {
+      LOG(FATAL) << "can not find field bufferExceeded" << endl;
+      return -1;
+    }
+  }
+ 
+   GenericReduceShuffleStore *gResultStore = 
+                       reinterpret_cast<GenericReduceShuffleStore *> (ptrToReduceStore);
+   if (gResultStore->getKValueType().typeId == KValueTypeId::ByteArray) {
+     //for sure, this is an int-key based reduce shuffle store, return the actual number of the k-vs.
+     ReduceShuffleStoreWithByteArrayKey *shuffleStoreWithByteArrayKeys = 
+                       dynamic_cast<ReduceShuffleStoreWithByteArrayKey *> (gResultStore);
+     // we can not do reset for each batch of get k-values, as the pending elements in merge-sort network 
+     // requires the buffer to not be reset (otherwise, data gets lost).
+     // BufferManager *bufferManager = shuffleStoreWithIntKeys->getBufferMgr();
+     // bufferManager->reset(); //to get to the ByteBuffer's initial position.
+
+     //before doing the retrieval, make sure that the buffer capacity is what has been allocated and expected with size 
+     //CHECK_EQ (buffer_capacity, SHMShuffleGlobalConstants::SERIALIZATION_BUFFER_SIZE)
+     //        << " buffer capacity: " << buffer_capacity << " does not match specifized size: "
+     //        << SHMShuffleGlobalConstants::SERIALIZATION_BUFFER_SIZE;
+ 
+     //int reducerId = shuffleStoreWithIntKeys->getReducerId();
+     jint *koffsetsArray = nullptr;
+     jint *voffsetsArray = nullptr;
+     jboolean bufferExceeded = false;
+
+     bool ordering = shuffleStoreWithByteArrayKeys->needsOrdering();
+     if (!ordering) {
+       ByteArrayKeyWithVariableLength::PassThroughMapBuckets&  resultHolder
+                                          = shuffleStoreWithByteArrayKeys->getPassThroughResultHolder();
+       shuffleStoreWithByteArrayKeys->reset_passthroughresult();
+       actualNumberOfKVs = shuffleStoreWithByteArrayKeys->retrieve_passthroughmapbuckets(kmaxNumbers);
+
+       VLOG(2) << "***in JNI getSimpleKVPairs with byte-array keys, no ordering requied, finished retrieving number of KVs: " 
+             << actualNumberOfKVs;   
+
+  
+       //(2.1) kvalues
+       koffsetsArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
+       //(2.2)voffsets. Note that we only need the boundary of the values, as the de-serialization
+       // knows how to do de-serialization by itself.
+       voffsetsArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
+
+       for (int i=0; i<actualNumberOfKVs; i++) {
+         koffsetsArray[i]= resultHolder.keyAndValueOffsets[i].end_keyoffset;
+         voffsetsArray[i] = resultHolder.keyAndValueOffsets[i].end_valueoffset;
+         if (VLOG_IS_ON(3)) {
+          VLOG(3) << "***in JNI getSimpleKVPairs with byte-array keys, retrieved i=" 
+               << i<< " byte-array key value size: " 
+               << (resultHolder.keyAndValueOffsets[i].end_keyoffset -resultHolder.keyAndValueOffsets[i].start_keyoffset)
+               << " with value size:  " 
+               << (resultHolder.keyAndValueOffsets[i].end_valueoffset -resultHolder.keyAndValueOffsets[i].start_valueoffset);
+         }
+      }
+     }
+     else {
+      ByteArrayKeyWithVariableLength::MergeSortedMapBuckets& resultHolder=
+  	                             shuffleStoreWithByteArrayKeys->getMergedResultHolder();
+      shuffleStoreWithByteArrayKeys->reset_mergedresult();
+      actualNumberOfKVs = shuffleStoreWithByteArrayKeys->retrieve_mergesortedmapbuckets(kmaxNumbers);
+
+      //Use the following LOG statement to see whether the logic is invoked correctly.
+      VLOG(2) << "***in JNI getSimpleKVPairs with byte-array keys, ordering required, finished retrieving number of KVs: "
+	      << actualNumberOfKVs;
+
+      unsigned char *buffer = (unsigned char*)env->GetDirectBufferAddress(byteBuffer);
+      //(2.1) koffsets.
+      koffsetsArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
+      voffsetsArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
+
+      int accumulated_size = 0;
+
+      ExtensibleByteBuffers *kBufferManager = shuffleStoreWithByteArrayKeys->getKBufferMgr();
+      ExtensibleByteBuffers *vBufferManager = shuffleStoreWithByteArrayKeys->getVBufferMgr();
+
+      for (int i=0; i<actualNumberOfKVs; i++) {
+	PositionInExtensibleByteBuffer cachedKeyValue = resultHolder.keys[i].cachedKeyValue;
+	kBufferManager->retrieve(cachedKeyValue, buffer);
+	buffer += cachedKeyValue.value_size;
+	accumulated_size   += cachedKeyValue.value_size;
+      
+        if (accumulated_size > buffer_capacity) {
+          bufferExceeded = true;
+          break; //abort the update of the bytebuffer array.
+	}
+
+        koffsetsArray[i] = accumulated_size;
+
+	VLOG(3) << "***in JNI getSimpleKVPairs with byte-array keys, retrieved i=" << i
+		<< " key value size: " << cachedKeyValue.value_size;
+	//now the values corresponding to the same K. 
+	{
+	  size_t start_position = resultHolder.keys[i].start_position;
+	  size_t end_position = resultHolder.keys[i].end_position;
+	  //check buffer will not exceed 
+          int vaccumulated_size = accumulated_size;
+          //I only have one position in  this situation
+	  for (size_t p=start_position; p<end_position; p++) {
+	    vaccumulated_size += resultHolder.kvaluesGroups[p].valueSize;
+	  }
+
+	  if (vaccumulated_size > buffer_capacity) {
+	    bufferExceeded = true;
+            break; //abort the update of the bytebuffer array 
+	  }
+
+	  VLOG(3) << "***in JNI getSimpleKVPairs with byte-array keys, retrieved i=" << i
+		  << " key value with corresponding value vector: ";
+
+          //I only have one position in  this situation, thus start-position equal to end_position
+	  VLOG(3) <<" ***in JNI getSimpleKVPairs with byte-array keys, start-position= " << start_position
+		  << " end-position = " << end_position;
+
+          //I only have one position in  this situation
+	  for (size_t p=start_position; p<end_position; p++) {
+	    VLOG(3) << "*****in JNI getKVPairs with byte-array keys, retrieved position: "
+		    << resultHolder.kvaluesGroups[p].cachedValueValue.position_in_start_buffer
+		    << " value size: " << resultHolder.kvaluesGroups[p].cachedValueValue.value_size;
+            //NOTE: by-pass value reading from channel earlier, thus we will need to do memcpy here
+            //vBufferManager->retrieve(resultHolder.kvaluesGroups[p].cachedValueValue, buffer); 
+            memcpy(buffer, resultHolder.kvaluesGroups[p].value,resultHolder.kvaluesGroups[p].cachedValueValue.value_size);
+	    buffer += resultHolder.kvaluesGroups[p].cachedValueValue.value_size;
+	    accumulated_size += resultHolder.kvaluesGroups[p].cachedValueValue.value_size;
+	  }
+
+	  voffsetsArray[i]=accumulated_size;
+	  VLOG(3) << "*****in JNI getKVPairs with byte-array keys, final offset position: " << voffsetsArray[i];
+
+	}      
+
+     }
+    }//with ordering
+
+    jintArray koffsetsArrayVal = env->NewIntArray(actualNumberOfKVs);
+    if (koffsetsArrayVal == NULL) {
+      LOG(FATAL) <<"cannot create koffsets int arrary" <<endl;
+      return -1;
+    }
+
+    env->SetIntArrayRegion(koffsetsArrayVal, 0, actualNumberOfKVs, koffsetsArray);
+    VLOG(2) << "***in JNI getSimpleKVPairs with byte-array keys, finished assigning the koffsets array***";
+
+    jintArray voffsetsArrayVal = env->NewIntArray(actualNumberOfKVs);
+    if (voffsetsArrayVal == NULL) {
+       LOG(FATAL) << "can not create voffsets int array";
+       return -1;
+    }
+    env->SetIntArrayRegion(voffsetsArrayVal, 0, actualNumberOfKVs, voffsetsArray); 
+
+    VLOG(2) << "***in JNI getKVPairs with long keys, finished assigning voffset array***";   
+
+
+    //(3) set all of the fields
+    env->SetObjectField (mergeResult, koffsetsArrayFieldId, koffsetsArrayVal);
+    env->SetObjectField (mergeResult, voffsetsArrayFieldId, voffsetsArrayVal);
+    //with extensible bytebuffer manager, we will never get the buffer exceeded. what will be extended
+    //might be the non-extensible byte buffer that works a a carrier for this batch of the data.
+
+    //(4) convert the values stored in extensible server to the linear single bytebuffer.
+    //at this time, I take care of it by throw exception when the buffer exceeds the size at C++ side.
+    env->SetBooleanField(mergeResult, bufferExceededFieldId, bufferExceeded);
+
+    VLOG(2) << "***in JNI getKVPairs with long keys, retrieved buffer exceeded flag is: " << (bool)bufferExceeded;
+ 
+    //(5) finally free some intermediate pointers
+    free(koffsetsArray);
+    free(voffsetsArray);
+  
+    VLOG(2) << "***in JNI getSimpleKVPairs with byte-array keys, free allocated koffset and voffsets array: "; 
+  }
+  else {
+    //NOTE: what is done in this scope is to create empty arrays as the return to the Java side.
+    VLOG(2) << "***in Jni GetSimpleKVParis with byte-array keys, actual reduce-shuffle store is with int-key due to empty buckets";
+    // actualNumberOfKVs is 0;   
+  
+    //(2.1) kvalues
+    jint *koffsetsArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
+    //(2.2)voffsets. Note that we only need the boundary of the values, as the de-serialization
+    // knows how to do de-serialization by itself.
+    jint *voffsetsArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
+
+    jintArray koffsetsArrayVal = env->NewIntArray(actualNumberOfKVs);
+    if (koffsetsArrayVal == NULL) {
+      LOG(FATAL) <<"cannot create koffset int arrary";
+      return -1;
+    }
+
+    env->SetIntArrayRegion(koffsetsArrayVal, 0, actualNumberOfKVs, koffsetsArray);
+    VLOG(2) << "***in JNI getSimpleKVPairs with byte-array keys, finished assigning the koffsets array***";
+
+    jintArray voffsetsArrayVal = env->NewIntArray(actualNumberOfKVs);
+    if (voffsetsArrayVal == NULL) {
+       LOG(FATAL) << "can not create voffsets int array" ;
+       return -1;
+    }
+    env->SetIntArrayRegion(voffsetsArrayVal, 0, actualNumberOfKVs, voffsetsArray); 
+
+    VLOG(2) << "***in JNI getSimpleKVPairs with byte-array keys, finished assigning voffset array***";   
+
+
+    //(3) set all of the fields
+    env->SetObjectField (mergeResult, koffsetsArrayFieldId, koffsetsArrayVal);
+    env->SetObjectField (mergeResult, voffsetsArrayFieldId, voffsetsArrayVal);
+    //with extensible bytebuffer manager, we will never get the buffer exceeded. what will be extended
+    //might be the non-extensible byte buffer that works a a carrier for this batch of the data.
+
+    //(4) convert the values stored in extensible server to the linear single bytebuffer.
+    //at this time, I take care of it by throw exception when the buffer exceeds the size at C++ side.
+    jboolean bufferExceeded = false; 
+    env->SetBooleanField(mergeResult, bufferExceededFieldId, bufferExceeded);
+
+    VLOG(2) << "***in JNI getSimpleKVPairs with byte-array keys, retrieved buffer exceeded flag is: " << (bool)bufferExceeded;
+ 
+    //(5) finally free some intermediate pointers
+    free(koffsetsArray);
+    free(voffsetsArray);
+  
+    VLOG(2) << "***in JNI getSimpleKVPairs with byte-array keys, free allocated koffsets and voffsets array: "; 
   }
 
   return actualNumberOfKVs;

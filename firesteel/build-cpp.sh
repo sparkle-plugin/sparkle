@@ -18,13 +18,6 @@
 FIRESTEEL_ROOT="`dirname "$0"`"
 FIRESTEEL_ROOT="`cd "$FIRESTEEL_ROOT"; pwd`"
 
-export CC=/usr/bin/gcc
-export CXX=/usr/bin/g++
-
-# build dependencies
-GTEST_ROOT="`cd "$FIRESTEEL_ROOT/../external/gtest"; pwd`"
-$GTEST_ROOT/build.sh
-
 # build firesteel
 BUILD_DIR=${FIRESTEEL_ROOT}/build
 
@@ -33,9 +26,13 @@ if [ ! -d ${BUILD_DIR} ]; then
 fi
 cd ${BUILD_DIR}
 cmake ${FIRESTEEL_ROOT}
+make clean
 make
+## the shared libraries not JNI related are pushed to /usr/local/lib, which requires sudo.
+sudo make install 
 ret=$? 
 if [ $ret -eq 0 ]; then
-    cp ${BUILD_DIR}/src/main/cpp/libfiresteel.so $FIRESTEEL_ROOT/target/classes
+    cp ${BUILD_DIR}/src/main/cpp/combinedshuffle/libjnishmshuffle.so $FIRESTEEL_ROOT/target/classes
+    cp ${BUILD_DIR}/src/main/cpp/combinedoffheapstore/libjnishmoffheapstore.so $FIRESTEEL_ROOT/target/classes
 fi
 exit ${ret}

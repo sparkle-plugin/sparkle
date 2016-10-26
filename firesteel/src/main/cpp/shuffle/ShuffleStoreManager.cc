@@ -57,7 +57,7 @@ ShuffleStoreManager::ShuffleStoreManager() {
          for (size_t i=0; i<TOTAL_PREDEFINED_KVALUETYPE_IDS;i++) {
   	   ArrayBufferPool *keyBufferPool =
              new QueueBasedArrayBufferPool(SHMShuffleGlobalConstants::MAXIMUM_KEYBUFFER_POOL_SIZE);
-            keyBufferPools.push_back(keyBufferPool);
+           keyBufferPools.push_back(keyBufferPool);
 	 }
        }
        else {
@@ -133,7 +133,7 @@ void ShuffleStoreManager::initialize(const string& heapName, int exeId) {
        shuffleDataSharedMemoryManager->initialize(globalHeapName);
        //delegate the generation id management to shuffle data shared memory manager.
        generationId = shuffleDataSharedMemoryManager->getGenerationId();
-       processMap = shuffleDataSharedMemoryManager->get_pmap(globalHeapName);
+       processMap = shuffleDataSharedMemoryManager->get_pmap();
 
        //we can do it via environmental setting, except the log directory.
        //init_google_logger();
@@ -172,7 +172,7 @@ void ShuffleStoreManager::format_shm (){
      if (SHMShuffleGlobalConstants::USING_RMB) {
         LOG(INFO) << "format global heap: " << globalHeapName << " with generation id: " << generationId;
         //generation id is per-process and it can be retrieved by querying RMB.
-        shuffleDataSharedMemoryManager->format_shm (globalHeapName, generationId);
+        shuffleDataSharedMemoryManager->format_shm (generationId);
      }
      else {
         LOG(WARNING) << "no global heap support when choosing local memory allocator";

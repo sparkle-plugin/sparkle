@@ -18,6 +18,7 @@
 #include <glog/logging.h>
 #include "com_hp_hpl_firesteel_offheapstore_OffHeapStore.h"
 #include "OffHeapStoreManager.h"
+#include "ShuffleStoreManager.h"
 
 /*
  * Class:     com_hp_hpl_firesteel_offheapstore_OffHeapStore
@@ -27,9 +28,10 @@
 JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_offheapstore_OffHeapStore_ninitialize
   (JNIEnv *env, jobject obj, jstring globalHeapName, jint executorId) {
 
-	OffHeapStoreManager *ptrMgr = OffHeapStoreManager::getInstance();
+    OffHeapStoreManager *ptrMgr = OffHeapStoreManager::getInstance();
 
-	const char *string_val = env->GetStringUTFChars(globalHeapName, NULL);
+    const char *string_val = env->GetStringUTFChars(globalHeapName, NULL);
+
     string heapName(string_val);
     ptrMgr->initialize(heapName, executorId);
 
@@ -227,7 +229,7 @@ JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_offheapstore_OffHeapStore_getA
         }
     }
 
-	ShmAddress shmAddr;
+    ShmAddress shmAddr;
 
     shmAddr.regionId = env->GetIntField( shmAddrObj, regionIdFieldId );
     shmAddr.offset_attrTable = env->GetLongField( shmAddrObj, offsetAttrTblFieldId );
@@ -235,6 +237,6 @@ JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_offheapstore_OffHeapStore_getA
     shmAddr.offset_hash2ndTable = env->GetLongField( shmAddrObj, offsetHash2ndTblFieldId );
     shmAddr.bucket_cnt = env->GetIntField( shmAddrObj, bucketCntFieldId );
 
-	return mgr->getAttribute(shmAddr, key);
+    return mgr->getAttribute(shmAddr, key);
 
 }

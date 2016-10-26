@@ -25,7 +25,7 @@ public:
         long offset_attrTable;
         long offset_hash1stTable;
         long offset_hash2ndTable;
-		int bucket_cnt;
+	int bucket_cnt;
 };
 
 #endif

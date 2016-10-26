@@ -1,0 +1,16 @@
+by modifying the log4j.properties file on this test suite directory, we can control the level of logging that 
+we need for SHM shuffle.
+
+NOTE that the log4j.properties have the copy of the generic Apache Spark's core runtime turned on for 
+logging.
+
+(1) make sure that the entire spark runtime built will need to be copied to the local maven repository,  that is:
+    .m2/repository/org/apache/spark/spark-hplabs/1.2.0/spark-hplabs-1.2.0.jar
+
+(2) then the command to issue the test is:
+    ./runtests.sh org.apache.spark.shuffle.shm.TestShmShuffleOperations
+    or:
+    ./runtests.sh org.apache.spark.shuffle.shm.TestShmShuffleMultiThreadedOperations
+
+HPL
+August 4, 2015

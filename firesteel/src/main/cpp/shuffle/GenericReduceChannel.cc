@@ -71,13 +71,14 @@ void GenericReduceChannel::init() {
 	   || (keytypeId == KValueTypeId::Long)
 	   || (keytypeId == KValueTypeId::Float)
 	   || (keytypeId == KValueTypeId::Double)
+	   || (keytypeId == KValueTypeId::ByteArray)
 	   || (keytypeId == KValueTypeId::String)){
 
 	vclass_size = ShuffleDataSharedMemoryReader::read_indexchunk_size_valueclass(p);
 	VLOG(2) << "retrieved index chunk value class size: " << vclass_size;
 
 	p += sizeof(vclass_size);      //advance to value's first byte.                                                           
-	//skip to read actual Key'value and Value's value. just advance the pointer                                    
+	//skip reading actual Key'value and Value's value. just advance the pointer                                    
 	p += vclass_size;
      }
      else if (keytypeId == KValueTypeId::Object) {

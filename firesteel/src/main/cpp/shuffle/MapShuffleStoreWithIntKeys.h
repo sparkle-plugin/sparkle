@@ -93,9 +93,14 @@ class  MapShuffleStoreWithIntKey: public GenericMapShuffleStore {
      }
 
      //for testing purpose.
-     IntKeyWithValueTracker* getKeys() {
+     IntKeyWithValueTracker* getKeys() const {
        return keys;
      }
+    
+     //for testing purpose 
+     size_t getSizeTracker() const {
+        return sizeTracker;
+     } 
 
      void storeKVPairsWithIntKeys (unsigned char *byteHolder, int voffsets[], 
 	   int kvalues[], int partitions[], int numberOfPairs) ;

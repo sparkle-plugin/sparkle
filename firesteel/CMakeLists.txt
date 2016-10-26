@@ -13,17 +13,31 @@
 # * limitations under the License.
 #
 
+cmake_minimum_required(VERSION 2.8)
 project(firesteel)
+set(FIRESTEEL_PROJECT_VERSION 0.2.0)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O3")
+set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -march=native -Wall -O3")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3")
-set(GTEST_ROOT ${PROJECT_SOURCE_DIR}/../external/gtest)
-set(CMAKE_POSITION_INDEPENDENT_CODE TRUE)
-find_library(GTEST_LIBRARY NAME gtest HINTS ${GTEST_ROOT}/build)
-if (NOT GTEST_LIBRARY)
-  message(STATUS "Google test library not found -- please build in $SPARKLE/external/gtest/build")
-endif ()
 
-add_subdirectory(src/main/cpp/rmb)
+set(CMAKE_POSITION_INDEPENDENT_CODE TRUE)
+
+# third-party libraries
+# set(GTEST_ROOT ${PROJECT_SOURCE_DIR}/third-party/gtest)
+# add_subdirectory(third-party)
+
+# alps library
+find_package (alps REQUIRED)
+set(ALPS_ROOT ${PROJECT_SOURCE_DIR}/../alps)
+
+add_subdirectory(src/main/cpp)
+
+## enable unit testing 
 enable_testing()
 add_subdirectory(src/test/cpp)
+
+
+## packaging later
+## 

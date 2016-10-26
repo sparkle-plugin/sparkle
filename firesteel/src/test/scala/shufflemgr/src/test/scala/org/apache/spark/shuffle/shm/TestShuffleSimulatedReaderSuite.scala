@@ -17,13 +17,14 @@
 
 package org.apache.spark.shuffle.shm
 
+import org.apache.spark.shuffle.shm.ShmShuffleWithMultiValues._
 import org.apache.spark.util.CompletionIterator
 import org.scalatest.FunSuite
 import org.scalatest.Ignore
 
 import com.hp.hpl.firesteel.shuffle.ShuffleDataModel.ReduceStatus
 import org.apache.spark.TaskContext
-import org.apache.spark.Logging
+import org.apache.spark.internal.Logging
 import org.apache.spark.util.collection.CompactBuffer
 import com.hp.hpl.firesteel.shuffle.simulated.SimulatedReduceSHMShuffleStore
 import com.hp.hpl.firesteel.shuffle.ShuffleDataModel
