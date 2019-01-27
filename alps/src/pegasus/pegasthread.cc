@@ -18,6 +18,6 @@
 
 namespace alps {
 
-__thread PegasThread pegas_thread;
+thread_local PegasThread pegas_thread;
 
 } // namespace alps
