@@ -21,7 +21,7 @@ endfunction()
 
 function (add_common_test targetname)
   add_shuffle_test(${targetname})
-  target_link_libraries(${targetname} shm_management ${ALPS_LIBRARY} ${TBB_LIBRARY} boost_system boost_filesystem glog rt)
+  target_link_libraries(${targetname} shm_management ${ALPS_LIBRARY} ${TBB_LIBRARY} boost_system boost_filesystem glog rt pthread)
 endfunction()
 
 add_common_test(bytebufferpool_unitest)
