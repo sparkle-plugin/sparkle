@@ -70,7 +70,7 @@ private[spark] class ShmShuffleManager (conf: SparkConf) extends ShuffleManager 
     }
   }
 
-  override val shortName: String = "shm"
+  // override val shortName: String = "shm"
 
   override def registerShuffle[K, V, C](
                                          shuffleId: Int,

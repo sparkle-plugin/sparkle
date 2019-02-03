@@ -16,6 +16,7 @@
  */
 
 #include <glog/logging.h>
+#include <immintrin.h>
 #include "OffHeapStoreManager.h"
 #include "OffHeapStoreConstants.h"
 #include "ShmAddress.h"
