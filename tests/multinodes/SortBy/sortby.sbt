@@ -16,9 +16,9 @@ name := "Simple SortBy Computation Project"
 
 version := "1.0"
 
-scalaVersion := "2.11.4"
+scalaVersion := "2.11.12"
 
-libraryDependencies += "org.apache.spark" %% "spark-core" % "2.0.0-SNAPSHOT"
+libraryDependencies += "org.apache.spark" %% "spark-core" % "2.4.0"
 
 libraryDependencies += "org.scalatest" % "scalatest_2.11" % "2.2.1"
 
