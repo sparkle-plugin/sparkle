@@ -49,7 +49,7 @@ object SharedMemoryMapOutputTracker {
 
     val statuses = try {
       val method =
-        mapOutputTracker.getClass.getSuperclass.getDeclaredMethod("getStatuses", classOf[Int])
+        mapOutputTracker.getClass.getDeclaredMethod("getStatuses", classOf[Int])
       method.setAccessible(true)
       method.invoke(mapOutputTracker, new JInt(shuffleId)).asInstanceOf[Array[MapStatus]]
     } catch {

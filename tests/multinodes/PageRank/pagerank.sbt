@@ -16,9 +16,9 @@ name := "PageRank Computation Project"
 
 version := "3.0"
 
-scalaVersion := "2.11.4"
+scalaVersion := "2.11.12"
 
-libraryDependencies += "org.apache.spark" %% "spark-core" % "2.0.0-SNAPSHOT"
+libraryDependencies += "org.apache.spark" %% "spark-core" % "2.4.0"
 
 resolvers += Resolver.mavenLocal
 
