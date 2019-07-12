@@ -38,7 +38,7 @@ object SparkGroupByPerformanceTestWithLong {
   }
 
   def main(args: Array[String]) {
-    val conf = new SparkConf().setAppName("simple multi-processed groupby")
+    val conf = new SparkConf().setAppName("simple multi-processed GroupBy")
     val sc = new SparkContext(conf)
 
     //to supress a null-pointer from running the test case.
