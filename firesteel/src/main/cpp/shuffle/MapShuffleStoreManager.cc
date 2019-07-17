@@ -24,7 +24,7 @@
 #include "MapShuffleStoreWithIntKeys.h"
 #include "MapShuffleStoreWithLongKeys.h"
 #include "MapShuffleStoreWithByteArrayKeys.h"
-
+#include "MapShuffleStoreWithObjKeys.h"
 
 GenericMapShuffleStore* MapShuffleStoreManager::createStore(int shuffleId, int id, 
                                            enum KValueTypeId tid, bool ordering) {
@@ -72,11 +72,11 @@ GenericMapShuffleStore* MapShuffleStoreManager::createStore(int shuffleId, int i
              //need to be done
             break;
           }
-          
+
           case KValueTypeId::Object: {
- 	    LOG(ERROR)  << "Not Implemented Yet" <<endl;
+            store = (GenericMapShuffleStore*)( new MapShuffleStoreWithObjKeys(id, ordering));
             break;
-          }    
+          }
 
           case KValueTypeId::Unknown: {
  	    LOG(ERROR)  << "Not Implemented Yet" <<endl;

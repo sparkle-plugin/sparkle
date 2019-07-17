@@ -186,6 +186,7 @@ public class MapSHMShuffleStore implements MapShuffleStore {
     private float fkvalues[] = null; 
     private long  lkvalues[]  = null; 
     private String skvalues[] = null; 
+    private Object okvalues[] = null;
     //for string length
     private int slkvalues[]=null; 
     
@@ -243,7 +244,7 @@ public class MapSHMShuffleStore implements MapShuffleStore {
              //do nothing, as it will use koffsets and voffsets.                                                                                                       
          }
          else if (keyType == ShuffleDataModel.KValueTypeId.Object){
-        	 throw new UnsupportedOperationException ( "key type: " + keyType + " is not supported");                                                                                                      
+             this.okvalues = new Object[this.sizeOfBatchSerialization];
          }
          else {
             throw new UnsupportedOperationException ( "key type: " + keyType + " is not supported");
@@ -366,9 +367,13 @@ public class MapSHMShuffleStore implements MapShuffleStore {
      
      //for key = object, value = object
      public void serializeVObject (Object kvalue, Object vvalue, int partitionId, int indexPosition) {
-         throw new RuntimeException ("serialize V for Object value is not implemented");
+        this.okvalues[indexPosition] = kvalue;
+        this.npartitions[indexPosition] = partitionId;
+        this.serializer.writeObject(vvalue);
+        ByteBuffer currentVBuf = this.serializer.getByteBuffer();
+        this.voffsets[indexPosition]= currentVBuf.position();
      }
-     
+
      @Override 
      public void serializeKVPair (Object kvalue, Object vvalue, int partitionId, int indexPosition, int scode) {
           //rely on Java to generate fast switch statement. 
@@ -422,15 +427,33 @@ public class MapSHMShuffleStore implements MapShuffleStore {
    	    case 5:
    	    	 storeKVPairsWithByteArrayKeys (numberOfPairs);
    	    	 break;
-   	    case 6:
-   	    	throw new RuntimeException ("key type of arbitrary object is not implemented"); 
-   	    	 //break;
+            case 6:
+                copyToNativeStore(numberOfPairs);
+                break;
    	    default: 
    	    	throw new RuntimeException ("unknown key type is encountered");
    	    
    	  }
      }
-     
+    
+
+    /**
+     * Copy arbitrary key-value pairs to the native map-side store.
+     * @param numPairs The number of pairs to be transfer to the native store.
+     */
+    private void copyToNativeStore(int numPairs) {
+        this.serializer.init();
+
+        ByteBuffer holder = this.serializer.getByteBuffer();
+        nCopyToNativeStore(this.pointerToStore, holder, this.voffsets,
+                           this.okvalues, this.npartitions, numPairs);
+
+        this.serializer.init();
+    }
+
+    private native void nCopyToNativeStore (long ptrToStore, ByteBuffer holder, int[] voffsets,
+                                             Object[] okvalues, int[] partitions, int numPairs);
+
     //Special case: to store the (K,V) pairs that have the K values to be with type of Integer
     public void storeKVPairsWithIntKeys (int numberOfPairs) {
         //NOTE: this byte buffer my be re-sized during serialization.

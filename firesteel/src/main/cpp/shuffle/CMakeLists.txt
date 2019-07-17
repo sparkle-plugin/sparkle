@@ -14,6 +14,7 @@
 # limitations under the License.
 #
 
+find_package (jni REQUIRED)
 find_package (tbb REQUIRED)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
@@ -63,8 +64,17 @@ set_property(GLOBAL APPEND PROPERTY ONLY_SHUFFLE_SRC
         ${CMAKE_CURRENT_SOURCE_DIR}/ShuffleStoreManager.cc 
         ${CMAKE_CURRENT_SOURCE_DIR}/ByteBufferPool.cc 
         ${CMAKE_CURRENT_SOURCE_DIR}/ArrayBufferPool.cc
-     
+        ${CMAKE_CURRENT_SOURCE_DIR}/MapShuffleStoreWithObjKeys.cc
+#        ${CMAKE_CURRENT_SOURCE_DIR}/Bucket.cc
 )
+
+IF (JNI_GENERAL_INCLUDE_DIR)
+  include_directories(${JNI_GENERAL_INCLUDE_DIR})
+ENDIF ()
+
+IF (JNI_PLATFORM_SPECIFIC_INCLUDE_DIR)
+  include_directories(${JNI_PLATFORM_SPECIFIC_INCLUDE_DIR})
+ENDIF ()
 
 get_property(TMP_ONLY_SHUFFLE_SRC GLOBAL PROPERTY ONLY_SHUFFLE_SRC)
 add_library(shuffle OBJECT ${TMP_ONLY_SHUFFLE_SRC})

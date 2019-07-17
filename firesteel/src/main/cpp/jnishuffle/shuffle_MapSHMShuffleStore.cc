@@ -16,6 +16,7 @@
  */
 
 #include <glog/logging.h>
+#include <iostream>
 #include "com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore.h"
 #include "MapShuffleStoreManager.h"
 #include "ShuffleStoreManager.h"
@@ -23,6 +24,7 @@
 #include "MapShuffleStoreWithLongKeys.h"
 #include "MapShuffleStoreWithStringKeys.h"
 #include "MapShuffleStoreWithByteArrayKeys.h"
+#include "MapShuffleStoreWithObjKeys.h"
 #include "GenericMapShuffleStore.h"
 #include "SimpleUtils.h"
 
@@ -166,6 +168,24 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsto
      env->ReleaseIntArrayElements (voffsets,vo, 0);
      env->ReleaseIntArrayElements (partitions, par, 0);
 
+}
+
+JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nCopyToNativeStore
+(JNIEnv* env, jobject obj, jlong ptrToStore, jobject byteBuffer, jintArray voffsets,
+ jobjectArray keys, jintArray partitions, jint numPairs) {
+  MapShuffleStoreWithObjKeys *shuffleStore =
+    reinterpret_cast<MapShuffleStoreWithObjKeys*> (ptrToStore);
+  unsigned char *buf = (unsigned char * )env->GetDirectBufferAddress(byteBuffer);
+
+  int* par = env->GetIntArrayElements (partitions, NULL);
+  int* vo = env->GetIntArrayElements (voffsets, NULL);
+
+  vector<jobject> keysVec(numPairs);
+  for (auto i=0; i<numPairs; ++i) {
+    jobject key = env->GetObjectArrayElement(keys, i);
+    keysVec.push_back(env->NewGlobalRef(key));
+  }
+  shuffleStore->storeKVPairs(keysVec, buf, vo, par, numPairs);
 }
 
 /*
@@ -604,17 +624,46 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsor
            //(8)then free the local array.
            free (cArray);
 
-    	  break;
+           break;
         }
         case KValueTypeId::Object:
         {
-          break; 
+          MapShuffleStoreWithObjKeys* storePtr
+            = dynamic_cast<MapShuffleStoreWithObjKeys*>(gstore);
+
+          MapStatus* mapStatus = nullptr;
+          storePtr->write(env, mapStatus);
+
+          // update Java-side MapStatus.
+          jclass retClazz = env->GetObjectClass(mStatus);
+          {
+            jfieldID fidRegionId {env->GetFieldID(retClazz, "regionIdOfIndexBucket", "J")};
+            env->SetLongField(mStatus, fidRegionId, mapStatus->getRegionId());
+          }
+          {
+            jfieldID fidOffset {env->GetFieldID(retClazz, "offsetOfIndexBucket", "J")};
+            env->SetLongField(mStatus, fidOffset, mapStatus->getOffsetOfIndexBucket());
+          }
+          {
+            jlong* tmp = new jlong[totalNumberOfPartitions];
+            memcpy(tmp, mapStatus->getBucketSizes().data(), sizeof(jlong)*totalNumberOfPartitions);
+            jlongArray bucketSizes {env->NewLongArray(totalNumberOfPartitions)};
+            env->SetLongArrayRegion(bucketSizes, 0, totalNumberOfPartitions, tmp);
+
+            jfieldID fidMapStatus {env->GetFieldID(retClazz, "mapStatus", "[J")};
+            env->SetObjectField(mStatus, fidMapStatus, bucketSizes);
+
+            delete [] tmp;
+          }
+
+          storePtr->deleteJobjectKeys(env);
+          delete mapStatus;
+          break;
         }
         case KValueTypeId::Unknown:
         {
-          break; 
+          break;
         }
-	 
        //we will later fill in other kinds of stores. 
 
     }
