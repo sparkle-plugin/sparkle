@@ -110,9 +110,7 @@ private[spark] class ShmShuffleManager (conf: SparkConf) extends ShuffleManager 
   override def unregisterShuffle(shuffleId: Int): Boolean = {
     if (_shuffleStoreManager != null) {
       logInfo("shm-shuffle store manager cleanup map stores with shuffle id: " + shuffleId)
-      //NOTE: 2/23/2016, to comment out the cleanup invocation temporarily, as for large-scale
-      //BP application testing on DragonHawk, it does not work.
-      //shuffleStoreManager.cleanup(shuffleId)
+      _shuffleStoreManager.cleanup(shuffleId)
     }
     else {
       logInfo("unregister shuffle unnecessary for shuffle manager on driver in cluster mode!")
