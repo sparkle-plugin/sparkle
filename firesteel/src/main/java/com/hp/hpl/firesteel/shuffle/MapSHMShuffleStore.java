@@ -232,6 +232,9 @@ public class MapSHMShuffleStore implements MapShuffleStore {
          else if (keyType == ShuffleDataModel.KValueTypeId.Long) {
              this.lkvalues = new long [this.sizeOfBatchSerialization];
          }
+		 else if (keyType == ShuffleDataModel.KValueTypeId.Double) {
+             this.lkvalues = new long [this.sizeOfBatchSerialization];
+         }
          else if (keyType == ShuffleDataModel.KValueTypeId.String) {
              this.skvalues = new String[this.sizeOfBatchSerialization];
              this.slkvalues = new int [this.sizeOfBatchSerialization];
