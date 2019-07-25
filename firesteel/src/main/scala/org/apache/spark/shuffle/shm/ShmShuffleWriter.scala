@@ -145,7 +145,13 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
         }
         case doubleValue: Double => {
           kvalueTypeId = ShuffleDataModel.KValueTypeId.Double
-          throw  new NotImplementedError("we have not implemented this method yet")
+          shuffleStoreMgr.createMapShuffleStore(
+            serializationResource.getKryoInstance(),
+            serializationResource.getByteBuffer(),
+            threadLocalShuffleResource.getLogicalThreadId,
+            shuffleId, mapId,numberOfPartitions,
+            ShuffleDataModel.KValueTypeId.Double, SHUFFLE_STORE_BATCH_SERIALIZATION_SIZE,
+            ordering) //true to allow sort/merge-sort with ordering.
         }
         case stringValue: String => {
           kvalueTypeId = ShuffleDataModel.KValueTypeId.String
