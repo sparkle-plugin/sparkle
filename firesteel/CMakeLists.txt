@@ -35,8 +35,8 @@ set(ALPS_ROOT ${PROJECT_SOURCE_DIR}/../alps)
 add_subdirectory(src/main/cpp)
 
 ## enable unit testing 
-enable_testing()
-add_subdirectory(src/test/cpp)
+#enable_testing()
+#add_subdirectory(src/test/cpp)
 
 
 ## packaging later

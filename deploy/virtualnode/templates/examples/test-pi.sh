@@ -13,6 +13,6 @@ cd "$SPARK_HOME"
   --master "spark://$(hostname):7077" \
   --deploy-mode client \
   --executor-memory 24G \
-  ./examples/target/scala-2.11/jars/spark-examples_2.11-2.0.0-SNAPSHOT.jar
+  ./examples/target/scala-2.11/jars/spark-examples_2.11-2.4.0.jar
 
 

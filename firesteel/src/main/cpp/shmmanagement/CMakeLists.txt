@@ -16,7 +16,7 @@
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 include_directories(${ALPS_ROOT}/src)
-include_directories(${ALPS_ROOT}/include)
+include_directories(${ALPS_ROOT}/include/alps)
 include_directories(${ALPS_ROOT}/third-party/yaml-cpp-0.5.2/include)
 
 ## need to change which package's include, boost?

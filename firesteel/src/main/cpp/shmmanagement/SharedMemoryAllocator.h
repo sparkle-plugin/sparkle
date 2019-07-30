@@ -25,6 +25,8 @@
 #include <boost/filesystem.hpp>
 #include "common/os.hh"
 #include "globalheap/globalheap.hh"
+#include "pegasus/pegasus_options.hh"
+#include "pegasus/pegasus.hh"
 
 using namespace std;
 using namespace alps;
@@ -65,7 +67,7 @@ class SharedMemoryAllocator {
         
         PegasusOptions pgopt;
         pgopt.debug_options.log_level = logLevel;
-	Pegasus::init(&pgopt);
+	Pegasus::init(pgopt);
      }
 
       ~SharedMemoryAllocator  () {
