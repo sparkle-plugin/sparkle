@@ -65,7 +65,7 @@ private[spark] object ShmShuffleStoreShuffleFetcher extends Logging {
                 shuffleId, reduceId, System.currentTimeMillis - startTime))
 
     for (i <- 0 until statuses.length) {
-      val (blockId, regionId, chunkOffset, bucket_size) = statuses(i)
+      val (blockId, regionId, chunkOffset, bucket_size, _) = statuses(i)
       if (log.isDebugEnabled) {
         val shuffleBlockId = blockId.asInstanceOf[ShuffleBlockId]
         logDebug("retrieved map output: map id: " + shuffleBlockId.mapId)

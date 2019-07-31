@@ -45,7 +45,7 @@ import java.lang.{String => JString}
  */
 private[spark] class ShmShuffleFetcherKeyValueIterator
 (contenxt: TaskContext,
- statuses: Seq[(BlockId, Long, Long, Long)],
+ statuses: Seq[(BlockId, Long, Long, Long, Boolean)],
  reduceShuffleStore: ReduceSHMShuffleStore)
   extends Iterator[(Any, Any)] with Logging {
 
@@ -84,24 +84,31 @@ private[spark] class ShmShuffleFetcherKeyValueIterator
     val shmRegionIds = new ArrayBuffer[Long]()
     val offsetToIndexChunks = new ArrayBuffer[Long]()
     val sizes  = new ArrayBuffer[Long]()
-
+    var isPrimitive = false
     //construct reduce status based on the collected map status from MapOutputTracker
-    statuses.foreach { case (blockId, regionId, chunkOffset, bucket_size) =>
+    statuses.foreach { case (blockId, regionId, chunkOffset, bucket_size, isPrimitiveKey) =>
             val shuffleBlockId = blockId.asInstanceOf[ShuffleBlockId]
             mapIds.append(shuffleBlockId.mapId)
             sizes.append(bucket_size)
             shmRegionIds.append(regionId)
             offsetToIndexChunks.append(chunkOffset)
+            isPrimitive = isPrimitiveKey
     }
     //start the sort-merge
     val reduceStatus = new ReduceStatus(mapIds.toArray, shmRegionIds.toArray,
       offsetToIndexChunks.toArray, sizes.toArray)
-    reduceShuffleStore.mergeSort(reduceStatus)
-    //until after mergeSort, we can now fetch the real value type
-    //if all of the input merge-sort channels (buckets) belonging to a reducer are empty.
-    //we will choose the type of integer key type. But at the end, there will be no non-zero
-    //iterator output.
-    kvalueTypeId = reduceShuffleStore.getKValueTypeId()
+
+    if (!isPrimitive) {
+      reduceShuffleStore.mergeSort(reduceStatus)
+      //until after mergeSort, we can now fetch the real value type
+      //if all of the input merge-sort channels (buckets) belonging to a reducer are empty.
+      //we will choose the type of integer key type. But at the end, there will be no non-zero
+      //iterator output.
+      kvalueTypeId = reduceShuffleStore.getKValueTypeId()
+    } else {
+      // TODO:
+      // initialize the Object shuffle store.
+    }
 
     fetchRound=0
     fetch() //make the first fetch.
