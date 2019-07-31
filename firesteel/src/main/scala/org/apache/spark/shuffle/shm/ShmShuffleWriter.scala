@@ -244,8 +244,8 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
     mapStatus = SharedMemoryMapStatus(blockManagerId,
       partitionLengths,
       mapStatusResult.getRegionIdOfIndexBucket,
-      mapStatusResult.getOffsetOfIndexBucket)
-
+      mapStatusResult.getOffsetOfIndexBucket,
+      kvalueTypeId != ShuffleDataModel.KValueTypeId.Object)
   }
 
   /**
