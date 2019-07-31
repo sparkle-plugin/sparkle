@@ -207,6 +207,13 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
                                    this.byteBuffer.capacity(), this.ordering, this.aggregation);
     }
 
+    public void createShuffleStore(ShuffleDataModel.ReduceStatus statuses) {
+        int totalBuckets = statuses.getMapIds().length;
+        this.pointerToStore = ncreateShuffleStore(this.shuffleStoreManager.getPointer(), shuffleId, reduceId,
+                                                  statuses, totalBuckets, this.byteBuffer,
+                                                  this.byteBuffer.capacity(), this.ordering, this.aggregation);
+    }
+
     /**
      * @param buffer is to passed in the de-serialization buffer's pointer.
      * @param ordering to specify whether the keys need to be ordered at the reduce shuffle store side.
@@ -219,6 +226,10 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
                                          int numberOfPartitions, ByteBuffer buffer, int bufferCapacity,
                                          boolean ordering, boolean aggregation);
 
+    private native long ncreateShuffleStore(long ptrToShuffleManager, int shuffleId, int reduceId,
+                                            ShuffleDataModel.ReduceStatus statuses,
+                                            int totalBuckets, ByteBuffer buffer, int bufferCapacity,
+                                            boolean ordering, boolean aggregation);
 
     /**
      * TODO: we will need to design the shared-memory region data structure, so that we can carry

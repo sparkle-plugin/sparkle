@@ -41,6 +41,14 @@ JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_
 
 /*
  * Class:     com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore
+ * Method:    ncreateShuffleStore
+ * Signature: (JIILcom/hp/hpl/firesteel/shuffle/ShuffleDataModel/ReduceStatus;ILjava/nio/ByteBuffer;IZZ)J
+ */
+JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_ncreateShuffleStore
+  (JNIEnv *, jobject, jlong, jint, jint, jobject, jint, jobject, jint, jboolean, jboolean);
+
+/*
+ * Class:     com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore
  * Method:    ngetKValueTypeId
  * Signature: (J)I
  */
