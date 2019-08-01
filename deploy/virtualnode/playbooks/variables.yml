@@ -2,15 +2,15 @@
 ---
 
 # Root directory of Spark installation
-install_root: /tmp/spark2.0hpcplatform
+install_root: /var/tmp/spark2.0hpcplatform
 
 # How many workers to run on this machine
-num_workers: 8
+num_workers: 2 
 
 # How much memory for each worker
-worker_memory: 64g
-driver_memory: 24g
-executor_memory: 48g
+worker_memory: 8g
+driver_memory: 8g
+executor_memory: 8g
 
 # Master tmpfs size (for example, 40g)
 master_tmpfs_size: 10g

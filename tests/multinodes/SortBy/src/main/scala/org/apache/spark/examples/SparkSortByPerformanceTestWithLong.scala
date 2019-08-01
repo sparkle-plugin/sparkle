@@ -50,8 +50,8 @@ object SparkSortByPerformanceTestWithLong {
     conf.set("spark.executor.shm.globalheap.name", "/dev/shm/nvm/global0");
 
 
-    val  numMappers = 200
-    val  numKVPairs = 2000000; //10 times to 20 million is affordable.
+    val  numMappers = 20
+    val  numKVPairs = 100000; //10 times to 20 million is affordable.
     val  valSize = 16 //similar to TeraSort
     val  numReducers = numMappers
     val  repetitions = 5 //roughly we will have 5 identifical keys
