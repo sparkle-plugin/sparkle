@@ -21,6 +21,7 @@
 #include "ReduceShuffleStoreWithIntKeys.h"
 #include "ReduceShuffleStoreWithLongKeys.h"
 #include "ReduceShuffleStoreWithByteArrayKeys.h"
+#include "ReduceShuffleStoreWithObjKeys.h"
 
 void ReduceShuffleStoreManager::obtain_kv_definition (MapBucket &mapBucket, int rId, int rPartitions,
 	     KValueTypeDefinition &kd, VValueTypeDefinition &vd){
@@ -158,11 +159,10 @@ GenericReduceShuffleStore* ReduceShuffleStoreManager::createStore(int shuffleId,
 	    break;
           } 
 
-         case KValueTypeId::Object:
-          {
-     	       //to be implemented.
-	       break;
-          } 
+    case KValueTypeId::Object:
+      store =
+        new ReduceShuffleStoreWithObjKeys(status, reducerId, passThroughBuffer, buff_capacity, ordering, aggregation);
+      break;
 
          case KValueTypeId::Unknown:
           {

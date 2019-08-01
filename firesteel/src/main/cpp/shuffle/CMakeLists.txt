@@ -47,6 +47,7 @@ set_property(GLOBAL APPEND PROPERTY ONLY_SHUFFLE_SRC
         ${CMAKE_CURRENT_SOURCE_DIR}/HashMapReduceChannelWithIntKeys.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/PassThroughReduceChannelWithIntKeys.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/ReduceShuffleStoreWithIntKeys.cc 
+        ${CMAKE_CURRENT_SOURCE_DIR}/ReduceShuffleStoreWithObjKeys.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/ShuffleDataSharedMemoryManagerHelper.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/longext/MapShuffleStoreWithLongKeys.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/longext/ReduceShuffleStoreWithLongKeys.cc

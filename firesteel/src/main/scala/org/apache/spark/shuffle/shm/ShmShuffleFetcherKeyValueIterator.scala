@@ -106,9 +106,8 @@ private[spark] class ShmShuffleFetcherKeyValueIterator
       //iterator output.
       kvalueTypeId = reduceShuffleStore.getKValueTypeId()
     } else {
-      // TODO:
-      // ReduceShuffleStore.mergeSort is actually factory method of the store.
-      // I have refactored mergeSort for object keys shuffling.
+      // ReduceShuffleStore.mergeSort is actually factory method of the store
+      // so that I decided to make the object shuffle store and its factory.
       kvalueTypeId = ShuffleDataModel.KValueTypeId.Object
       reduceShuffleStore.createShuffleStore(reduceStatus)
     }

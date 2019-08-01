@@ -336,6 +336,51 @@ JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_
   return ptr;
 }
 
+JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_ncreateShuffleStore
+(JNIEnv* env, jobject obj, jlong ptrShuffleStoreManager, jint shuffleId, jint reducerId,
+ jobject reduceStatus, jint totalBuckets, jobject byteBuffer, jint bufferCapacity,
+ jboolean needOrdering, jboolean needAggregation) {
+
+  ReduceStatus status(reducerId);
+  {
+    jclass clazz = env->GetObjectClass(reduceStatus);
+
+    jfieldID fidSizes = env->GetFieldID(clazz, "sizes", "[J");
+    long* bucketSizes = env->GetLongArrayElements((jlongArray)env->GetObjectField(reduceStatus, fidSizes), NULL);
+
+    jfieldID fidRegionIds =
+      env->GetFieldID(clazz, "regionIdsOfIndexChunks", "[J");
+    long* regionIds =
+      env->GetLongArrayElements((jlongArray)env->GetObjectField(reduceStatus, fidRegionIds), NULL);
+
+    jfieldID fidOffsets = env->GetFieldID(clazz, "offsetsOfIndexChunks", "[J");
+    long* offsets =
+      env->GetLongArrayElements((jlongArray)env->GetObjectField(reduceStatus, fidOffsets), NULL);
+
+    jfieldID fidMapIds = env->GetFieldID(clazz, "mapIds", "[I");
+    int* mapIds =
+      env->GetIntArrayElements((jintArray)env->GetObjectField(reduceStatus, fidMapIds), NULL);
+
+    for (int i=0; i<totalBuckets; ++i) {
+      MapBucket bucket(reducerId, bucketSizes[i], regionIds[i], offsets[i], mapIds[i]);
+      status.addMapBucket(bucket);
+    }
+  }
+
+  unsigned char *buffer =
+    (unsigned char*) env->GetDirectBufferAddress(byteBuffer);
+  ReduceShuffleStoreManager* reduceShuffleStoreManager =
+    reinterpret_cast<ShuffleStoreManager*>(ptrShuffleStoreManager)->getReduceShuffleStoreManager();
+
+  GenericReduceShuffleStore* gResultStore =
+    reduceShuffleStoreManager->createStore(shuffleId, reducerId,
+                                           status, -1, // Do we really need numPartitions?
+                                           nullptr, buffer, bufferCapacity,
+                                           KValueTypeId::Object, needOrdering, needAggregation);
+
+  return reinterpret_cast<long>(gResultStore);
+}
+
 
 /*
  * Class:     com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore
