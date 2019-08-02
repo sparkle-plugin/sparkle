@@ -10,10 +10,14 @@ class KVPair {
  public:
   KVPair(const jobject& key, unsigned char* value, int vSize, int partition) :
     key(key), value(value), vSize(vSize), partition(partition) {}
+  KVPair(byte* serKey, byte* value, int vSize, int partition):
+    serKey(serKey), value((unsigned char*) value),
+    vSize(vSize), partition(partition) {}
   ~KVPair() {}
 
   inline int getPartition() const {return partition;}
   inline jobject getKey() const {return key;}
+  inline void setKey(jobject& _key) {key = _key;};
   inline byte* getSerKey() const {return serKey;}
   inline void setSerKey(byte* bytes) {
     serKey = bytes;

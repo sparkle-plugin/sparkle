@@ -1,11 +1,13 @@
 #ifndef REDUCE_SHUFFLE_STORE_WITH_OBJ_KEYS_H__
 #define REDUCE_SHUFFLE_STORE_WITH_OBJ_KEYS_H__
 
+#include <jni.h>
 #include <vector>
 #include <stdexcept>
 #include <utility>
 #include "MapStatus.h"
 #include "GenericReduceShuffleStore.h"
+#include "KVPairLoader.h"
 
 using namespace std;
 
@@ -14,11 +16,10 @@ class ReduceShuffleStoreWithObjKeys: public GenericReduceShuffleStore {
   ReduceShuffleStoreWithObjKeys(const ReduceStatus& status,
                                 int _reducerId, unsigned char* _buffer,
                                 size_t _bufferCapacity, bool ordering,
-                                bool aggregation)
-    :reduceStatus(status), reducerId(_reducerId),
-     buffer(make_pair((byte*)_buffer, _bufferCapacity)),
-     needOrdering(ordering), needAggregation(aggregation) {}
-  ~ReduceShuffleStoreWithObjKeys() {}
+                                bool aggregation);
+  ~ReduceShuffleStoreWithObjKeys() {
+    delete kvPairLoader;
+  }
 
   inline KValueTypeDefinition getKValueType() override {
     return kvTypeDefinition;
@@ -38,6 +39,8 @@ class ReduceShuffleStoreWithObjKeys: public GenericReduceShuffleStore {
     return needAggregation;
   }
 
+  vector<KVPair> fetch(JNIEnv* env, int num);
+
   void stop() override {}
   void shutdown() override {}
 
@@ -49,5 +52,17 @@ class ReduceShuffleStoreWithObjKeys: public GenericReduceShuffleStore {
   const bool needAggregation;
   const KValueTypeDefinition kvTypeDefinition {KValueTypeId::Object};
   VValueTypeDefinition vvTypeDefinition;
+
+  KVPairLoader* kvPairLoader {nullptr};
+
+  inline vector<pair<region_id, offset>> toChunkPtrs() {
+    vector<pair<region_id, offset>> pairs;
+    for (auto bucket : reduceStatus.mapBuckets) {
+      pairs.push_back(make_pair(bucket.regionId, bucket.offset));
+    }
+    return pairs;
+  }
+
+  void deserializeKeys(JNIEnv* env, vector<KVPair>& pairs);
 };
 #endif

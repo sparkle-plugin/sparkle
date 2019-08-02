@@ -236,14 +236,9 @@ private[spark] class ShmShuffleFetcherKeyValueIterator
         }
       }
       case  ShuffleDataModel.KValueTypeId.Object => {
-        //to retrieve a collection of {k, {v1, v2,...}} from the C++ shuffle engine where
-        //WARNING: we need to provide list based APIS, instead of []. Need to see whether it
-        //can be passed around
-        //create a holder, we need to move this holder in outer scope. so that we do not need
-        //to create every time
         if (fetchRound == 0) {
           for (i <- 0 to SHUFFLE_MERGED_KEYVALUE_PAIRS_RETRIEVAL_SIZE - 1) {
-            okvalues.add(null) //initialization to 0;
+            okvalues.add(null) //initialization to null;
             vvalues.add(null); //initialization to null;
           }
         }
@@ -254,7 +249,7 @@ private[spark] class ShmShuffleFetcherKeyValueIterator
           kvBuffer(i) = (okvalues(i), vvalues(i))
         }
 
-        if (actualPairs < SHUFFLE_MERGED_KEYVALUE_PAIRS_RETRIEVAL_SIZE ){
+        if (actualPairs < SHUFFLE_MERGED_KEYVALUE_PAIRS_RETRIEVAL_SIZE) {
           endOfFetch = true
         }
       }

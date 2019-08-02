@@ -363,40 +363,49 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
      */
     private native int nGetKVPairs(ByteBuffer byteBuffer, int buffer_capacity, int voffsets[], int knumbers);
 
+    /**
+     * return unordered kv pairs to ShuffleReader's Iterator.
+     * @param kvalues
+     * @param vvalues
+     * @param knumbers
+     * @return the number of kv pairs which are deserialized from the global heap.
+     */
     public int getSimpleKVPairs (ArrayList<Object> kvalues, ArrayList<Object> vvalues, int knumbers) {
-    	 this.deserializer.init();
-         int pvVOffsets[] = new int[knumbers];  //offset to each group of {vp,1, vp,2...,vp,k}.
+        // prep key holders and value offsets in the direct buffer.
+        Object okvalues[] = new Object[knumbers];
+        int pvVOffsets[] = new int[knumbers];
 
-         int actualKVPairs = nGetSimpleKVPairs(this.deserializer.getByteBuffer(),  
-      		                            this.byteBuffer.capacity(), pvVOffsets, knumbers);
-         for (int i=0; i<actualKVPairs; i++) {
-             //read the key
-             Object p = this.deserializer.readObject();//readClassObject at this time.
-             kvalues.set(i, p);
-             //then read all of the values {vp,1, vp,2...vp,k} corresponding to the key.
-             //the corresponding value pairs
-             Object s = null;
-             ByteBuffer populatedByteBuffer = this.deserializer.getByteBuffer();
-             {
+        this.deserializer.init();
+        int actualKVPairs = nGetSimpleKVPairs(this.pointerToStore, okvalues,
+                                              this.deserializer.getByteBuffer(),
+                                              this.byteBuffer.capacity(), pvVOffsets, knumbers);
 
-                 int endPosition = pvVOffsets[i];
-                 if( populatedByteBuffer.position() < endPosition){
-                     s = this.deserializer.readObject();//readClassObject at this time.
-                 }
-                 else {
-                	 throw new RuntimeException ("deserializer cannot de-serialize object following the offset boundary");
-                 }
-             }
+        for (int i=0; i<actualKVPairs; i++) {
+            Object key = okvalues[i];
+            kvalues.set(i, key);
 
-             vvalues.set(i, s);
-         }
-         this.deserializer.close();
+            Object value = null;
+            ByteBuffer populatedByteBuffer = this.deserializer.getByteBuffer();
+            {
+                int endPosition = pvVOffsets[i];
+                if( populatedByteBuffer.position() < endPosition){
+                    value = this.deserializer.readObject(); //readClassObject at this time.
+                }
+                else {
+                    throw new RuntimeException ("deserializer cannot de-serialize object following the offset boundary");
+                }
+            }
+            vvalues.set(i, value);
+        }
+        this.deserializer.close();
 
-         return actualKVPairs;
+        return actualKVPairs;
     }
-    
-    private native int nGetSimpleKVPairs(ByteBuffer byteBuffer, int buffer_capacity, int voffsets[], int knumbers);
-    
+
+    private native int nGetSimpleKVPairs(long ptrToStore, Object kvalues[], ByteBuffer
+                                         byteBuffer, int buffer_capacity,
+                                         int voffsets[], int knumbers);
+
     //vvalues only has the first layer of element populated with empty object. the second level
     //of object array will have to be created by Java.
     @Override

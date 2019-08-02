@@ -66,7 +66,7 @@ set_property(GLOBAL APPEND PROPERTY ONLY_SHUFFLE_SRC
         ${CMAKE_CURRENT_SOURCE_DIR}/ByteBufferPool.cc 
         ${CMAKE_CURRENT_SOURCE_DIR}/ArrayBufferPool.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/MapShuffleStoreWithObjKeys.cc
-#        ${CMAKE_CURRENT_SOURCE_DIR}/Bucket.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/KVPairLoaderImpl.cc
 )
 
 IF (JNI_GENERAL_INCLUDE_DIR)

@@ -16,12 +16,14 @@
  */
 
 #include <glog/logging.h>
+#include <stdexcept>
 #include "com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore.h"
 #include "ShuffleStoreManager.h"
 #include "ReduceShuffleStoreManager.h"
 #include "ReduceShuffleStoreWithIntKeys.h"
 #include "ReduceShuffleStoreWithLongKeys.h"
 #include "ReduceShuffleStoreWithByteArrayKeys.h"
+#include "ReduceShuffleStoreWithObjKeys.h"
 #include "ExtensibleByteBuffers.h"
 #include "GenericReduceShuffleStore.h"
 
@@ -1830,23 +1832,40 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
   return 0;
 }
 
-
 /*
  * Class:     com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore
  * Method:    nGetSimpleKVPairs
  * Signature: (Ljava/nio/ByteBuffer;I[II)I
  */
 JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_nGetSimpleKVPairs
-(JNIEnv *env, jobject obj, jobject bytebuffer, jint buffer_capacity, jintArray voffsetsArray, jint knumbers){
+(JNIEnv *env, jobject obj, jlong ptrToReduceStore, jobjectArray okvalues, jobject byteBuffer,
+ jint buffer_capacity, jintArray voffsetsArray, jint knumbers){
+  ReduceShuffleStoreWithObjKeys* reduceShuffleStore =
+    reinterpret_cast<ReduceShuffleStoreWithObjKeys*> (ptrToReduceStore);
 
- {
-    const char *exClassName = "java/lang/UnsupportedOperationException";
-    jclass ecls = env->FindClass (exClassName);
-    if (ecls != NULL){
-      env->ThrowNew(ecls, "nstoreKVPairs for arbitrary <k,v> is not supported");
+  // retrieve knumbers kv pairs from buckets via the store.
+  vector<KVPair> pairs {reduceShuffleStore->fetch(env, knumbers)};
+  int actualNumKVPairs = static_cast<int>(pairs.size());
+
+  byte* buffer = (byte*)env->GetDirectBufferAddress(byteBuffer);
+  int currentBufferSize {0};
+
+  vector<jint> valueOffsets;
+  for (int i=0; i<actualNumKVPairs; ++i) {
+    env->SetObjectArrayElement(okvalues, i, pairs[i].getKey());
+    env->DeleteGlobalRef(pairs[i].getKey());
+
+    int serValueSize = pairs[i].getSerValueSize();
+    if (currentBufferSize + serValueSize > buffer_capacity) {
+      throw length_error("direct buffer is almost full.");
     }
 
+    memcpy(buffer, pairs[i].getSerValue(), serValueSize);
+    buffer += serValueSize;
+    valueOffsets.push_back(serValueSize);
   }
-  
-  return 0;
+
+  env->SetIntArrayRegion(voffsetsArray, 0, actualNumKVPairs, valueOffsets.data());
+
+  return static_cast<int>(actualNumKVPairs);
 }
