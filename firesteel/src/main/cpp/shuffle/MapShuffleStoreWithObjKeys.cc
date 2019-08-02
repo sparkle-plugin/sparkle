@@ -143,8 +143,8 @@ MapShuffleStoreWithObjKeys::writeIndexChunk(vector<byte*>& dataChunkLocalOffsets
   size_t indexChunkSize =
     sizeof(int) // Key's type.
     + sizeof(int) // # of buckets(=partitions)
-    // # of (regionId, offset, sizeof(bucket)) for each partition.
-    + numPartitions * (sizeof(uint64_t)*2 + sizeof(int));
+    // # of (regionId, offset, sizeof(bucket), sizeof(numPairs)) for each partition.
+    + numPartitions * (sizeof(uint64_t)*2 + sizeof(int)*2);
 
   RRegion::TPtr<void> indexChunkGlobalPointer
     = memoryManager->allocate_indexchunk (indexChunkSize);
@@ -168,19 +168,23 @@ MapShuffleStoreWithObjKeys::writeIndexChunk(vector<byte*>& dataChunkLocalOffsets
   // alloc data chunks, then write their meta data into the index chunk.
   vector<int> bucketSizes(numPartitions); // byte
   fill(bucketSizes.begin(), bucketSizes.end(), 0);
+  // # of pairs(not aggregated) for each partition.
+  vector<int> numPairs(numPartitions);
+  fill(numPairs.begin(), numPairs.end(), 0);
 
   for (auto pair : kvPairs) {
     bucketSizes[pair.getPartition()] += pair.getSerKeySize();
+    numPairs[pair.getPartition()] += 1;
   }
 
-  for (auto bucketSize : bucketSizes) {
+  for (int i=0; i<numPartitions; ++i) {
     // keep BucketSize before hand.
-    mapStatus.bucketSizes.push_back(bucketSize);
+    mapStatus.bucketSizes.push_back(bucketSizes[i]);
 
     // Allocate Data Chuncks using bucketSize.
     // Then, keep the (regionId, offset) pairs in this instance.
     RRegion::TPtr<void> chunk
-      = memoryManager->allocate_datachunk(bucketSize);
+      = memoryManager->allocate_datachunk(bucketSizes[i]);
     assert(chunk != global_null_ptr);
     dataChunkPtrs.push_back(make_pair(chunk.region_id(), chunk.offset()));
 
@@ -193,7 +197,10 @@ MapShuffleStoreWithObjKeys::writeIndexChunk(vector<byte*>& dataChunkLocalOffsets
       memcpy(localOffset, &chunkOffset, sizeof(uint64_t));
       localOffset += sizeof(uint64_t);
 
-      memcpy(localOffset, &bucketSize, sizeof(int));
+      memcpy(localOffset, &bucketSizes[i], sizeof(int));
+      localOffset += sizeof(int);
+
+      memcpy(localOffset, &numPairs[i], sizeof(int));
       localOffset += sizeof(int);
     }
 
