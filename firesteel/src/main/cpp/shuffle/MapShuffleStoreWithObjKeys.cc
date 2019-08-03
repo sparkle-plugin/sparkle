@@ -33,11 +33,9 @@ MapShuffleStoreWithObjKeys::storeKVPairs(
   return ;
 }
 
-void
-MapShuffleStoreWithObjKeys::write(JNIEnv* env, MapStatus* mapStatus) {
-  if (kvPairs.empty()) {
-    return ;
-  }
+MapStatus*
+MapShuffleStoreWithObjKeys::write(JNIEnv* env) {
+  assert(!kvPairs.empty());
 
   if (needsOrdering()) {
     sortPairs(env);
@@ -51,11 +49,14 @@ MapShuffleStoreWithObjKeys::write(JNIEnv* env, MapStatus* mapStatus) {
   writeDataChunk(offsets);
 
   // fill MapStatus with corresponding stats.
-  mapStatus = new MapStatus(stats.indexChunkAddr.first, stats.indexChunkAddr.second,
-                            numPartitions, mapId);
+  MapStatus* mapStatus =
+    new MapStatus(stats.indexChunkAddr.first,
+                  stats.indexChunkAddr.second, numPartitions, mapId);
   for (int i=0; i<(int)stats.bucketSizes.size(); ++i) {
     mapStatus->setBucketSize(i, stats.bucketSizes[i]);
   }
+
+  return mapStatus;
 }
 
 void

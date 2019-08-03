@@ -28,7 +28,7 @@ public:
    * Write stored Key-Value pairs into the shared memory.
    * If need ordering, sort the pairs before write.
    */
-  void write(JNIEnv* env, MapStatus* mapStatus);
+  MapStatus* write(JNIEnv* env);
   void deleteJobjectKeys(JNIEnv* env);
 
   KValueTypeDefinition getKValueType() override {

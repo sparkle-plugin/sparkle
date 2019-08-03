@@ -631,8 +631,7 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsor
           MapShuffleStoreWithObjKeys* storePtr
             = dynamic_cast<MapShuffleStoreWithObjKeys*>(gstore);
 
-          MapStatus* mapStatus = nullptr;
-          storePtr->write(env, mapStatus);
+          MapStatus* mapStatus {storePtr->write(env)};
 
           // update Java-side MapStatus.
           jclass retClazz = env->GetObjectClass(mStatus);
