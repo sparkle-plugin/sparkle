@@ -35,11 +35,11 @@ class KVPair {
    * considering memory footprint it's better use variants for (ser)key.
    * Please refer to https://en.cppreference.com/w/cpp/utility/variant
    */
-  jobject key;
+  jobject key {nullptr};
   byte* serKey {nullptr};
   int serKeySize {-1};
   unsigned char* value;
-  int vSize;
+  int vSize {-1};
   int partition;
 };
 #endif

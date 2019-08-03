@@ -174,8 +174,9 @@ MapShuffleStoreWithObjKeys::writeIndexChunk(vector<byte*>& dataChunkLocalOffsets
   vector<int> numPairs(numPartitions);
   fill(numPairs.begin(), numPairs.end(), 0);
 
-  for (auto pair : kvPairs) {
-    bucketSizes[pair.getPartition()] += pair.getSerKeySize();
+  for (auto& pair : kvPairs) {
+    bucketSizes[pair.getPartition()] +=
+      sizeof(int) + pair.getSerKeySize() + pair.getSerValueSize() + sizeof(int);
     numPairs[pair.getPartition()] += 1;
   }
 
@@ -216,7 +217,7 @@ MapShuffleStoreWithObjKeys::writeDataChunk(vector<byte*>& localOffsets) {
   /*
    * [(key-size, serKey, value-size, serValue)] for each partition.
    */
-  for (auto pair : kvPairs) {
+  for (auto& pair : kvPairs) {
     byte* localOffset = localOffsets[pair.getPartition()];
 
     {
