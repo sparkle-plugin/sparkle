@@ -27,7 +27,7 @@ MapShuffleStoreWithObjKeys::storeKVPairs(
     kvPairs.push_back(pair);
 
     // update # of partitions.
-    numPartitions = max(numPartitions, *(partitions+i));
+    numPartitions = max(numPartitions, *(partitions+i)+1);
   }
 
   return ;
