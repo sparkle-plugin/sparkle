@@ -183,7 +183,7 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nCop
   vector<jobject> keysVec(numPairs);
   for (auto i=0; i<numPairs; ++i) {
     jobject key = env->GetObjectArrayElement(keys, i);
-    keysVec.push_back(env->NewGlobalRef(key));
+    keysVec[i] = env->NewGlobalRef(key);
   }
   shuffleStore->storeKVPairs(keysVec, buf, vo, par, numPairs);
 }
