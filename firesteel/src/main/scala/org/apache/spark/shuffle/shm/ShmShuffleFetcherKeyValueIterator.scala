@@ -94,11 +94,12 @@ private[spark] class ShmShuffleFetcherKeyValueIterator
             offsetToIndexChunks.append(chunkOffset)
             isPrimitive = isPrimitiveKey
     }
+
     //start the sort-merge
     val reduceStatus = new ReduceStatus(mapIds.toArray, shmRegionIds.toArray,
       offsetToIndexChunks.toArray, sizes.toArray)
 
-    if (!isPrimitive) {
+    if (isPrimitive) {
       reduceShuffleStore.mergeSort(reduceStatus)
       //until after mergeSort, we can now fetch the real value type
       //if all of the input merge-sort channels (buckets) belonging to a reducer are empty.
