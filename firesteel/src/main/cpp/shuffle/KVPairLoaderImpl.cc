@@ -83,9 +83,11 @@ PassThroughLoader::load(int reducerId) {
 
 vector<KVPair>
 PassThroughLoader::fetch(int num) {
-  auto it = flatChunk.begin();
-  auto res = vector<KVPair>(it, it+num);
-  flatChunk.erase(it, it+num);
+  auto first = flatChunk.begin();
+  auto last = first + min(num, static_cast<int>(flatChunk.size()));
+
+  auto res = vector<KVPair>(first, last);
+  flatChunk.erase(first, last);
 
   return res;
 }
