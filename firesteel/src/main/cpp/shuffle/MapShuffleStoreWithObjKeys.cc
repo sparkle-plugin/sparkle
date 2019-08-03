@@ -22,9 +22,12 @@ MapShuffleStoreWithObjKeys::storeKVPairs(
     vector<jobject>& keys, unsigned char *values,
     int* voffsets, int* partitions, int numPairs) {
 
+  int voffset = 0;
   for (int i=0; i<numPairs; ++i) {
-    KVPair pair = KVPair(keys[i] , values, *(voffsets+i), *(partitions+i));
+    KVPair pair = KVPair(keys[i] , values+voffset, *(voffsets+i) - voffset, *(partitions+i));
     kvPairs.push_back(pair);
+
+    voffset += pair.getSerValueSize();
 
     // update # of partitions.
     numPartitions = max(numPartitions, *(partitions+i)+1);
