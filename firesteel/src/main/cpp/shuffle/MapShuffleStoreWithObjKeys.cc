@@ -122,12 +122,13 @@ MapShuffleStoreWithObjKeys::serializeKeys(JNIEnv* env) {
     {env->FindClass("org/apache/commons/lang3/SerializationUtils")};
   jmethodID serMid
     {env->GetStaticMethodID(serClazz, "serialize", "(Ljava/io/Serializable;)[B")};
-  for (auto kvPair : kvPairs) {
-    jbyteArray byteArray
-      = (jbyteArray) env->CallStaticObjectMethod(serClazz, serMid, kvPair.getKey());
+  for (auto& kvPair : kvPairs) {
+    jbyteArray byteArray =
+      (jbyteArray)env->CallStaticObjectMethod(serClazz, serMid, kvPair.getKey());
 
-    // TODO: Check this might be a local ref.
-    jbyte* bytes = env->GetByteArrayElements(byteArray , NULL);
+    jbyte* bytes =
+      env->GetByteArrayElements(byteArray , NULL);
+
     kvPair.setSerKey(reinterpret_cast<byte*>(bytes));
     kvPair.setSerKeySize(env->GetArrayLength(byteArray));
   }
