@@ -72,7 +72,7 @@ PassThroughLoader::load(int reducerId) {
         memcpy(serValue, index, serValueSize);
         index += serValueSize;
 
-        KVPair pair(serKey, serValue, serValueSize, reducerId);
+        KVPair pair(serKey, serKeySize, serValue, serValueSize, reducerId);
         dataChunks[i].second.push_back(pair);
       }
     }
