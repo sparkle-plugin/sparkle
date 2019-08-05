@@ -1,6 +1,9 @@
 #include <iostream>
 #include <vector>
+#include <unordered_map>
+#include <iterator>
 #include <utility>
+#include <functional>
 #include <cstring>
 #include "globalheap/globalheap.hh"
 #include "KVPairLoader.h"
@@ -114,4 +117,47 @@ PassThroughLoader::flatten() {
   for (auto&& [chunk_id, chunk] : dataChunks) {
     flatChunk.insert(flatChunk.end(), chunk.begin(), chunk.end());
   }
+}
+
+void
+HashMapLoader::prepare(JNIEnv* env) {
+  for (auto&& [idx, dataChunk] : dataChunks) {
+    deserializeKeys(env, dataChunk);
+  }
+
+  aggregate(env);
+}
+
+void
+HashMapLoader::aggregate(JNIEnv* env) {
+  // group by keys.
+  hashmap =
+    new unordered_map<jobject, vector<KVPair>, Hasher, EqualTo>(0, Hasher(env), EqualTo(env));
+  for (auto&& [idx, dataChunk] : dataChunks) {
+    for (auto& pair : dataChunk) {
+      auto it {hashmap->find(pair.getKey())};
+      if (it == hashmap->end()) {
+        hashmap->insert({pair.getKey(), vector<KVPair>{pair}});
+        continue;
+      }
+
+      auto& pairs {it->second};
+      pairs.push_back(pair);
+    }
+  }
+}
+
+vector<vector<KVPair>>
+HashMapLoader::fetchAggregatedPairs(int num) {
+  vector<vector<KVPair>> res;
+
+  auto first = hashmap->begin();
+  auto last = next(first, min(num, static_cast<int>(hashmap->size())));
+
+  for (auto it=first; it!=last; ++it) {
+    res.push_back(it->second);
+  }
+  hashmap->erase(first, last);
+
+  return res;
 }

@@ -98,7 +98,7 @@ private[spark] class ShmShuffleFetcherKeyValuesIterator
       val reduceStatus = new ReduceStatus(mapIds.toArray, shmRegionIds.toArray,
                                                offsetToIndexChunks.toArray, sizes.toArray)
 
-     if (!isPrimitive) {
+     if (isPrimitive) {
        reduceShuffleStore.mergeSort(reduceStatus)
        //until after mergeSort, we can now fetch the real value type
        //if all of the input merge-sort channels (buckets) belonging to a reducer are empty.
@@ -106,8 +106,10 @@ private[spark] class ShmShuffleFetcherKeyValuesIterator
        //iterator output.
        kvalueTypeId = reduceShuffleStore.getKValueTypeId()
      } else {
-       // TODO:
-       // initialize the Object shuffle store.
+       // ReduceShuffleStore.mergeSort is actually factory method of the store
+       // so that I decided to make the object shuffle store and its factory.
+       kvalueTypeId = ShuffleDataModel.KValueTypeId.Object
+       reduceShuffleStore.createShuffleStore(reduceStatus)
      }
 
       fetchRound=0
@@ -259,7 +261,7 @@ private[spark] class ShmShuffleFetcherKeyValuesIterator
            val vv = vvalues(i).seq
            kvBuffer (i)= (okvalues(i), vv)
          }
-        
+
          if (actualPairs < SHUFFLE_MERGED_KEYVALUE_PAIRS_RETRIEVAL_SIZE ){
             endOfFetch = true
          }

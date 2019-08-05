@@ -18,13 +18,12 @@ ReduceShuffleStoreWithObjKeys(const ReduceStatus& status,
   vector<pair<region_id, offset>> idxChunkPtrs {toChunkPtrs()};
 
   if (needAggregation) {
-    throw logic_error("Hashmap Loader is not implemented...");
-  }
-  if (needOrdering) {
+    kvPairLoader = new HashMapLoader(reducerId, idxChunkPtrs);
+  } else if (needOrdering) {
     throw logic_error("Mergesort Loader is not implemented...");
+  } else{
+    kvPairLoader = new PassThroughLoader(reducerId, idxChunkPtrs);
   }
-
-  kvPairLoader = new PassThroughLoader(reducerId, idxChunkPtrs);
 }
 
 vector<KVPair>

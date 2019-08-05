@@ -319,38 +319,36 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
      * to retrieve from C++ side the value type definition for the arbitrary object based value. 
      */
     private native byte[] ngetVValueType(long ptrToStore);
-    
 
-    //we need to pass in the value holder and key holder, given the number of maximum knumbers to get.
     @Override
     public int getKVPairs (ArrayList<Object> kvalues, ArrayList<ArrayList<Object>> vvalues, int knumbers) {
-       this.deserializer.init();
-       int pvVOffsets[] = new int[knumbers];  //offset to each group of {vp,1, vp,2...,vp,k}.
+        // prep key holders and value offsets in the direct buffer.
+        Object okvalues[] = new Object[knumbers];
+        int pvVOffsets[] = new int[knumbers];
 
-       int actualKVPairs = nGetKVPairs(this.deserializer.getByteBuffer(),  
-    		                            this.byteBuffer.capacity(), pvVOffsets, knumbers);
-       for (int i=0; i<actualKVPairs; i++) {
-           //read the key
-           Object p = this.deserializer.readObject();//readClassObject at this time.
-           kvalues.set(i, p);
-           //then read all of the values {vp,1, vp,2...vp,k} corresponding to the key.
-           //the corresponding value pairs
-           ArrayList<Object> holder = new ArrayList<Object>();
-           ByteBuffer populatedByteBuffer = this.deserializer.getByteBuffer();
-           {
+        this.deserializer.init();
+        int actualKVPairs = nGetKVPairs(this.pointerToStore, okvalues,
+                                        this.deserializer.getByteBuffer(),
+                                        this.byteBuffer.capacity(), pvVOffsets, knumbers);
 
-               int endPosition = pvVOffsets[i];
-               while ( populatedByteBuffer.position() < endPosition){
-                   Object s = this.deserializer.readObject();//readClassObject at this time.
-                   holder.add(s);
-               }
-           }
+        for (int i=0; i<actualKVPairs; i++) {
+            Object key = okvalues[i];
+            kvalues.set(i, key);
 
-           vvalues.set(i, holder);
-       }
-       this.deserializer.close();
+            ArrayList<Object> holder = new ArrayList<Object>();
 
-       return actualKVPairs;
+            ByteBuffer populatedByteBuffer = this.deserializer.getByteBuffer();
+            int endPosition = pvVOffsets[i];
+            while (populatedByteBuffer.position() < endPosition) {
+                Object s = this.deserializer.readObject();//readClassObject at this time.
+                holder.add(s);
+            }
+
+            vvalues.set(i, holder);
+        }
+        this.deserializer.close();
+
+        return actualKVPairs;
     }
 
     /**
@@ -361,7 +359,9 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
      * @param knumbers
      * @return
      */
-    private native int nGetKVPairs(ByteBuffer byteBuffer, int buffer_capacity, int voffsets[], int knumbers);
+    private native int nGetKVPairs(long ptrToStore, Object kvalues[], ByteBuffer
+                                   byteBuffer, int buffer_capacity,
+                                   int voffsets[], int knumbers);
 
     /**
      * return unordered kv pairs to ShuffleReader's Iterator.

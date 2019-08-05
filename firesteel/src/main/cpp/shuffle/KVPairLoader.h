@@ -2,8 +2,10 @@
 #define __KVPAIRLOADER_H_
 
 #include <vector>
+#include <unordered_map>
 #include <utility>
 #include <cstdint>
+#include <stdexcept>
 #include "KVPair.h"
 
 using namespace std;
@@ -28,7 +30,13 @@ public:
    * fetch the number of kv pairs.
    * Note: we should call `load` before this method.
    */
-  virtual vector<KVPair> fetch(int num)=0;
+  virtual vector<KVPair> fetch(int num) {
+    throw new domain_error("not valid here.");
+  }
+  virtual vector<vector<KVPair>> fetchAggregatedPairs(int num) {
+    throw new domain_error("not valid here.");
+  }
+
 protected:
   const int reducerId;
   vector<pair<region_id, offset>>& chunkPtrs; //index chunk pointers.
@@ -55,5 +63,55 @@ public:
 private:
   vector<KVPair> flatChunk;
   void flatten();
+};
+
+class HashMapLoader : public KVPairLoader {
+public:
+  HashMapLoader(int _reducerId, vector<pair<region_id, offset>>& _chunkPtrs)
+    : KVPairLoader(_reducerId, _chunkPtrs) {
+  }
+  ~HashMapLoader() {
+    delete hashmap;
+  }
+
+  void prepare(JNIEnv* env) override;
+  vector<vector<KVPair>> fetchAggregatedPairs(int num) override;
+private:
+  void aggregate(JNIEnv* env);
+
+  // implement Equal-related functors here.
+  struct EqualTo {
+  public:
+    EqualTo(JNIEnv* env) : env(env) {}
+    ~EqualTo() {}
+
+    bool operator()(const jobject& lhs, const jobject& rhs) const {
+      jclass clazz {env->GetObjectClass(lhs)};
+      jmethodID equals
+        {env->GetMethodID(clazz, "equals", "(Ljava/lang/Object;)Z")};
+      return env->CallBooleanMethod(lhs, equals, rhs);
+    }
+
+  private:
+    JNIEnv* env {nullptr};
+  };
+
+  struct Hasher {
+  public:
+    Hasher(JNIEnv* env) : env(env) {}
+    ~Hasher() {}
+
+    uint64_t operator()(const jobject& key) const {
+      jclass clazz {env->GetObjectClass(key)};
+      jmethodID hasher
+        {env->GetMethodID(clazz, "hashCode", "()I")};
+      return (uint64_t) env->CallIntMethod(key, hasher);
+    }
+
+  private:
+    JNIEnv* env {nullptr};
+  };
+
+  unordered_map<jobject, vector<KVPair>, Hasher, EqualTo>* hashmap;
 };
 #endif

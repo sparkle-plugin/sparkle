@@ -464,18 +464,45 @@ JNIEXPORT jbyteArray JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleS
  * Signature: (Ljava/nio/ByteBuffer;I[II)I
  */
 JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_nGetKVPairs
-(JNIEnv *env, jobject obj , jobject byteBuffer,  jint buffer_capacity, jintArray voffsets, jint knubers) {
+(JNIEnv *env, jobject obj, jlong ptrToReduceStore, jobjectArray okvalues, jobject byteBuffer,
+ jint buffer_capacity, jintArray voffsetsArray, jint knumbers){
+  ReduceShuffleStoreWithObjKeys* reduceShuffleStore =
+    reinterpret_cast<ReduceShuffleStoreWithObjKeys*> (ptrToReduceStore);
 
- {
+  // retrieve knumbers kv pairs from buckets via the store.
+  vector<vector<KVPair>> pairs {reduceShuffleStore->fetchAggregatedPairs(knumbers)};
+  int actualNumKVPairs = static_cast<int>(pairs.size());
 
-    const char *exClassName = "java/lang/UnsupportedOperationException";
-    jclass ecls = env->FindClass (exClassName);
-    if (ecls != NULL){
-      env->ThrowNew(ecls, "nstoreKVPairs for arbitrary <k,v> is not supported");
+  byte* buffer = (byte*)env->GetDirectBufferAddress(byteBuffer);
+  int currentBufferSize {0};
+
+  // copy key-values pair back to Java.
+  vector<jint> valueOffsets;
+  int actualOffset {0};
+  for (int i=0; i<actualNumKVPairs; ++i) {
+    env->SetObjectArrayElement(okvalues, i, pairs[i][0].getKey());
+
+    for (auto& pair : pairs[i]) {
+      int serValueSize = pair.getSerValueSize();
+      if (currentBufferSize + serValueSize > buffer_capacity) {
+        throw length_error("direct buffer is almost full.");
+      }
+
+      memcpy(buffer, pair.getSerValue(), serValueSize);
+      buffer += serValueSize;
+
+      actualOffset += serValueSize;
+
+      // cleanup GlobalRef here.
+      env->DeleteGlobalRef(pair.getKey());
     }
 
+    valueOffsets.push_back(actualOffset);
   }
-  return 0;
+
+  env->SetIntArrayRegion(voffsetsArray, 0, actualNumKVPairs, valueOffsets.data());
+
+  return static_cast<int>(actualNumKVPairs);
 }
 
 /*
@@ -1843,8 +1870,7 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
   ReduceShuffleStoreWithObjKeys* reduceShuffleStore =
     reinterpret_cast<ReduceShuffleStoreWithObjKeys*> (ptrToReduceStore);
 
-  // retrieve knumbers kv pairs from buckets via the store.
-  vector<KVPair> pairs {reduceShuffleStore->fetch(env, knumbers)};
+  vector<KVPair> pairs {reduceShuffleStore->fetch(knumbers)};
   int actualNumKVPairs = static_cast<int>(pairs.size());
 
   byte* buffer = (byte*)env->GetDirectBufferAddress(byteBuffer);

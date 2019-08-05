@@ -41,6 +41,10 @@ class ReduceShuffleStoreWithObjKeys: public GenericReduceShuffleStore {
 
   vector<KVPair> fetch(JNIEnv* env, int num);
 
+  inline vector<vector<KVPair>> fetchAggregatedPairs(int num) {
+    return kvPairLoader->fetchAggregatedPairs(num);
+  }
+
   void stop() override {}
   void shutdown() override {}
 

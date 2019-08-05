@@ -38,8 +38,10 @@ class KVPair {
   jobject key {nullptr};
   byte* serKey {nullptr};
   int serKeySize {-1};
+
   unsigned char* value;
   int vSize {-1};
+
   int partition;
 };
 #endif

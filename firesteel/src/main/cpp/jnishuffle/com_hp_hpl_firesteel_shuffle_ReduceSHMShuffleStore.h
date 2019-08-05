@@ -74,10 +74,10 @@ JNIEXPORT jbyteArray JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleS
 /*
  * Class:     com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore
  * Method:    nGetKVPairs
- * Signature: (Ljava/nio/ByteBuffer;I[II)I
+ * Signature: (J[Ljava/lang/Object;Ljava/nio/ByteBuffer;I[II)I
  */
 JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_nGetKVPairs
-  (JNIEnv *, jobject, jobject, jint, jintArray, jint);
+  (JNIEnv *, jobject, jlong, jobjectArray, jobject, jint, jintArray, jint);
 
 /*
  * Class:     com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore
