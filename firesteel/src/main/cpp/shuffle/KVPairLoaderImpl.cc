@@ -101,6 +101,24 @@ KVPairLoader::dropUntil(int partitionId, byte* index) {
   return index;
 }
 
+void
+KVPairLoader::deserializeKeys(JNIEnv* env, vector<KVPair>& pairs) {
+  jclass deserClazz
+    {env->FindClass("org/apache/commons/lang3/SerializationUtils")};
+  jmethodID deserMid
+    {env->GetStaticMethodID(deserClazz, "deserialize", "([B)Ljava/lang/Object;")};
+  for (auto& pair : pairs) {
+
+    jbyteArray keyJbyteArray = env->NewByteArray(pair.getSerKeySize());
+    env->SetByteArrayRegion(keyJbyteArray, 0, pair.getSerKeySize(), (jbyte*) pair.getSerKey());
+
+    // TODO: delete this ref somewhere.
+    jobject key =
+      (jobject) env->NewGlobalRef(env->CallStaticObjectMethod(deserClazz, deserMid, keyJbyteArray));
+    pair.setKey(key);
+  }
+}
+
 vector<KVPair>
 PassThroughLoader::fetch(int num) {
   auto first = flatChunk.begin();

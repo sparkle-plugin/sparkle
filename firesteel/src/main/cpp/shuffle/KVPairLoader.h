@@ -1,6 +1,7 @@
 #ifndef __KVPAIRLOADER_H_
 #define __KVPAIRLOADER_H_
 
+#include <jni.h>
 #include <vector>
 #include <unordered_map>
 #include <utility>
@@ -22,10 +23,9 @@ public:
     size = load(reducerId);
   }
   virtual ~KVPairLoader() {}
-  /**
-   * load the whole chunks in memory as kv pairs.
-   */
-  size_t load(int reducerId);
+
+  virtual void prepare(JNIEnv* env) =0;
+
   /**
    * fetch the number of kv pairs.
    * Note: we should call `load` before this method.
@@ -43,19 +43,29 @@ protected:
   vector<pair<chunk_id, chunk>> dataChunks;
   uint64_t size {0};
   byte* dropUntil(int partitionId, byte* indexChunkPtr);
+  void deserializeKeys(JNIEnv* env, vector<KVPair>& pairs);
+private:
+  /**
+   * load the whole chunks in memory as kv pairs.
+   */
+  size_t load(int reducerId);
 };
 
 class PassThroughLoader : public KVPairLoader {
 public:
   PassThroughLoader(int _reducerId, vector<pair<region_id, offset>>& _chunkPtrs)
     : KVPairLoader(_reducerId, _chunkPtrs) {
-    flatten();
   }
   ~PassThroughLoader() {
     for (KVPair& pair : flatChunk) {
       delete [] pair.getSerKey();
       delete [] pair.getSerValue();
     }
+  }
+
+  inline void prepare(JNIEnv* env) override {
+    flatten();
+    deserializeKeys(env, flatChunk);
   }
 
   vector<KVPair> fetch(int num) override;

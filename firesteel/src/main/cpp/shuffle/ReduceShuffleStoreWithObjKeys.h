@@ -39,7 +39,13 @@ class ReduceShuffleStoreWithObjKeys: public GenericReduceShuffleStore {
     return needAggregation;
   }
 
-  vector<KVPair> fetch(JNIEnv* env, int num);
+  inline void prepare(JNIEnv* env) {
+    kvPairLoader->prepare(env);
+  }
+
+  inline vector<KVPair> fetch(int num) {
+    return kvPairLoader->fetch(num);
+  }
 
   inline vector<vector<KVPair>> fetchAggregatedPairs(int num) {
     return kvPairLoader->fetchAggregatedPairs(num);
@@ -66,7 +72,5 @@ class ReduceShuffleStoreWithObjKeys: public GenericReduceShuffleStore {
     }
     return pairs;
   }
-
-  void deserializeKeys(JNIEnv* env, vector<KVPair>& pairs);
 };
 #endif

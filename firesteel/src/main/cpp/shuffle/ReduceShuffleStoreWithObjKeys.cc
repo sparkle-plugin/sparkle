@@ -25,30 +25,3 @@ ReduceShuffleStoreWithObjKeys(const ReduceStatus& status,
     kvPairLoader = new PassThroughLoader(reducerId, idxChunkPtrs);
   }
 }
-
-vector<KVPair>
-ReduceShuffleStoreWithObjKeys::fetch(JNIEnv* env, int num) {
-  vector<KVPair> pairs {kvPairLoader->fetch(num)};
-
-  deserializeKeys(env, pairs);
-
-  return pairs;
-}
-
-void
-ReduceShuffleStoreWithObjKeys::deserializeKeys(JNIEnv* env, vector<KVPair>& pairs) {
-  jclass deserClazz
-    {env->FindClass("org/apache/commons/lang3/SerializationUtils")};
-  jmethodID deserMid
-    {env->GetStaticMethodID(deserClazz, "deserialize", "([B)Ljava/lang/Object;")};
-  for (auto& pair : pairs) {
-
-    jbyteArray keyJbyteArray = env->NewByteArray(pair.getSerKeySize());
-    env->SetByteArrayRegion(keyJbyteArray, 0, pair.getSerKeySize(), (jbyte*) pair.getSerKey());
-
-    // TODO: delete this ref somewhere.
-    jobject key =
-      (jobject) env->NewGlobalRef(env->CallStaticObjectMethod(deserClazz, deserMid, keyJbyteArray));
-    pair.setKey(key);
-  }
-}

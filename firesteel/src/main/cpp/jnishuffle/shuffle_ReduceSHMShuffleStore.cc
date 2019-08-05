@@ -374,13 +374,15 @@ JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_
   ReduceShuffleStoreManager* reduceShuffleStoreManager =
     reinterpret_cast<ShuffleStoreManager*>(ptrShuffleStoreManager)->getReduceShuffleStoreManager();
 
-  GenericReduceShuffleStore* gResultStore =
+  ReduceShuffleStoreWithObjKeys* resultStore = dynamic_cast<ReduceShuffleStoreWithObjKeys*>(
     reduceShuffleStoreManager->createStore(shuffleId, reducerId,
                                            status, -1, // Do we really need numPartitions?
                                            nullptr, buffer, bufferCapacity,
-                                           KValueTypeId::Object, needOrdering, needAggregation);
+                                           KValueTypeId::Object, needOrdering, needAggregation));
 
-  return reinterpret_cast<long>(gResultStore);
+  resultStore->prepare(env);
+
+  return reinterpret_cast<long>(resultStore);
 }
 
 
