@@ -26,7 +26,7 @@ public:
    */
   virtual vector<KVPair> fetch(int num)=0;
 protected:
-  void dropUntil(int partitionId, byte* indexChunkPtr);
+  byte* dropUntil(int partitionId, byte* indexChunkPtr);
 };
 
 class PassThroughLoader : public KVPairLoader {

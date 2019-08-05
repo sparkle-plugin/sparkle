@@ -16,9 +16,19 @@ PassThroughLoader::load(int reducerId) {
     RRegion::TPtr<void> idxChunkPtr(chunkPtr.first, chunkPtr.second);
     byte* index = (byte*)idxChunkPtr.get();
     {
-      // discard key's type, # of partitions, and unnecessary chunks ptr.
-      index += sizeof(int) + sizeof(int);
-      dropUntil(reducerId, index);
+      // discard key's type
+      index += sizeof(int);
+
+      // decode # of partitions in this map output.
+      int numBuckets;
+      memcpy(&numBuckets, index, sizeof(int));
+      index +=  sizeof(int);
+
+      // drop unnecessary chunks ptr considering for  # of partitions.
+      if (reducerId > numBuckets-1) {
+        continue;
+      }
+      index = dropUntil(reducerId, index);
 
       // decode data chunk ptr and its size.
       region_id rid;
@@ -99,9 +109,11 @@ PassThroughLoader::flatten() {
   }
 }
 
-void
+byte*
 KVPairLoader::dropUntil(int partitionId, byte* index) {
   for (int i=0; i<partitionId-1; ++i) {
     index += sizeof(region_id) + sizeof(offset) + sizeof(int)*2;
   }
+
+  return index;
 }
