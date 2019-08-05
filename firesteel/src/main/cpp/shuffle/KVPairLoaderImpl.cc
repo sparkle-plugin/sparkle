@@ -9,7 +9,7 @@ using namespace std;
 using namespace alps;
 
 size_t
-PassThroughLoader::load(int reducerId) {
+KVPairLoader::load(int reducerId) {
   // decode the index chunk.
   vector<pair<region_id, offset>> dataChunkPtrs;
   vector<int> numPairs;
@@ -89,6 +89,15 @@ PassThroughLoader::load(int reducerId) {
   return dataChunks.size();
 }
 
+byte*
+KVPairLoader::dropUntil(int partitionId, byte* index) {
+  for (int i=0; i<partitionId; ++i) {
+    index += sizeof(region_id) + sizeof(offset) + sizeof(int)*2;
+  }
+
+  return index;
+}
+
 vector<KVPair>
 PassThroughLoader::fetch(int num) {
   auto first = flatChunk.begin();
@@ -105,13 +114,4 @@ PassThroughLoader::flatten() {
   for (auto&& [chunk_id, chunk] : dataChunks) {
     flatChunk.insert(flatChunk.end(), chunk.begin(), chunk.end());
   }
-}
-
-byte*
-KVPairLoader::dropUntil(int partitionId, byte* index) {
-  for (int i=0; i<partitionId; ++i) {
-    index += sizeof(region_id) + sizeof(offset) + sizeof(int)*2;
-  }
-
-  return index;
 }
