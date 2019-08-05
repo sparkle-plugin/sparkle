@@ -1851,6 +1851,7 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
   int currentBufferSize {0};
 
   vector<jint> valueOffsets;
+  int actualOffset {0};
   for (int i=0; i<actualNumKVPairs; ++i) {
     env->SetObjectArrayElement(okvalues, i, pairs[i].getKey());
     env->DeleteGlobalRef(pairs[i].getKey());
@@ -1862,7 +1863,9 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
 
     memcpy(buffer, pairs[i].getSerValue(), serValueSize);
     buffer += serValueSize;
-    valueOffsets.push_back(serValueSize);
+
+    actualOffset += serValueSize;
+    valueOffsets.push_back(actualOffset);
   }
 
   env->SetIntArrayRegion(voffsetsArray, 0, actualNumKVPairs, valueOffsets.data());

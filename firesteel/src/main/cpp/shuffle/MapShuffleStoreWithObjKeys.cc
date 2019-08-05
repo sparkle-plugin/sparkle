@@ -240,5 +240,7 @@ MapShuffleStoreWithObjKeys::writeDataChunk(vector<byte*>& localOffsets) {
       memcpy(localOffset, pair.getSerValue(), valueSize);
       localOffset += valueSize;
     }
+
+    localOffsets[pair.getPartition()] = localOffset;
   }
 }

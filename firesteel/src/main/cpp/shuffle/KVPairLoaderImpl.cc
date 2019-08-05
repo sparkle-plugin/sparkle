@@ -1,3 +1,4 @@
+#include <iostream>
 #include <vector>
 #include <utility>
 #include <cstring>
@@ -52,15 +53,12 @@ PassThroughLoader::load(int reducerId) {
     }
   }
 
-  // init chunk
-  for (size_t i=0; i<dataChunkPtrs.size(); ++i) {
-    dataChunks.push_back(make_pair(i, chunk()));
-  }
-
   // decode data chunks.
   for (size_t i=0; i<dataChunkPtrs.size(); ++i) {
     RRegion::TPtr<void> dataChunkPtr(dataChunkPtrs[i].first, dataChunkPtrs[i].second);
     byte* index = (byte*) dataChunkPtr.get();
+
+    dataChunks.push_back(make_pair(i, chunk()));
     for (int j=0; j<numPairs[i]; ++j) {
       // [serKeySize, serKey, serValueSize, serValue]
       {
@@ -78,7 +76,7 @@ PassThroughLoader::load(int reducerId) {
         index += sizeof(int);
 
         // who frees?
-        byte* serValue = new byte[serValueSize];
+        unsigned char* serValue = new unsigned char[serValueSize];
         memcpy(serValue, index, serValueSize);
         index += serValueSize;
 
@@ -111,7 +109,7 @@ PassThroughLoader::flatten() {
 
 byte*
 KVPairLoader::dropUntil(int partitionId, byte* index) {
-  for (int i=0; i<partitionId-1; ++i) {
+  for (int i=0; i<partitionId; ++i) {
     index += sizeof(region_id) + sizeof(offset) + sizeof(int)*2;
   }
 

@@ -10,8 +10,8 @@ class KVPair {
  public:
   KVPair(const jobject& key, unsigned char* value, int vSize, int partition) :
     key(key), value(value), vSize(vSize), partition(partition) {}
-  KVPair(byte* serKey,int serKeySize, byte* value, int vSize, int partition):
-    serKey(serKey), serKeySize(serKeySize), value((unsigned char*) value),
+  KVPair(byte* serKey,int serKeySize, unsigned char* value, int vSize, int partition):
+    serKey(serKey), serKeySize(serKeySize), value(value),
     vSize(vSize), partition(partition) {}
   ~KVPair() {}
 
