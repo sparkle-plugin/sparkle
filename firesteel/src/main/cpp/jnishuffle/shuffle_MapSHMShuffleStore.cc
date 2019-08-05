@@ -645,7 +645,11 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsor
           }
           {
             jlong* tmp = new jlong[totalNumberOfPartitions];
-            memcpy(tmp, mapStatus->getBucketSizes().data(), sizeof(jlong)*totalNumberOfPartitions);
+            vector<int>& sizes = mapStatus->getBucketSizes();
+            for (int i=0; i<totalNumberOfPartitions; ++i) {
+              tmp[i] = (long)sizes[i];
+            }
+
             jlongArray bucketSizes {env->NewLongArray(totalNumberOfPartitions)};
             env->SetLongArrayRegion(bucketSizes, 0, totalNumberOfPartitions, tmp);
 
