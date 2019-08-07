@@ -114,4 +114,38 @@ private:
 
   unordered_map<jobject, vector<KVPair>, Hasher, EqualTo>* hashmap;
 };
+
+class MergeSortLoader : public KVPairLoader {
+public:
+  MergeSortLoader(int _reducerId, vector<pair<region_id, offset>>& _chunkPtrs)
+    : KVPairLoader(_reducerId, _chunkPtrs) {
+  }
+  ~MergeSortLoader() {}
+
+  void prepare(JNIEnv* env) override;
+  vector<KVPair> fetch(int num) override;
+private:
+  void order(JNIEnv* env);
+
+  struct Comparator {
+  public:
+    Comparator(JNIEnv* env) : env(env) {};
+
+    bool operator ()(const KVPair& lpair, const KVPair& rpair) {
+      jobject lkey {lpair.getKey()};
+      jobject rkey {rpair.getKey()};
+
+      jclass clazz {env->GetObjectClass(lkey)};
+      jmethodID compareTo {env->GetMethodID(clazz, "compareTo", "(Ljava/lang/Object;)I")};
+      int result {env->CallIntMethod(lkey, compareTo, rkey)};
+
+      return result<0;
+    }
+
+  private:
+    JNIEnv* env {nullptr};
+  };
+
+  vector<KVPair> orderedChunk;
+};
 #endif

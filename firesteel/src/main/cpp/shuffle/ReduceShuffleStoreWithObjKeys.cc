@@ -20,7 +20,7 @@ ReduceShuffleStoreWithObjKeys(const ReduceStatus& status,
   if (needAggregation) {
     kvPairLoader = new HashMapLoader(reducerId, idxChunkPtrs);
   } else if (needOrdering) {
-    throw logic_error("Mergesort Loader is not implemented...");
+    kvPairLoader = new MergeSortLoader(reducerId, idxChunkPtrs);
   } else{
     kvPairLoader = new PassThroughLoader(reducerId, idxChunkPtrs);
   }

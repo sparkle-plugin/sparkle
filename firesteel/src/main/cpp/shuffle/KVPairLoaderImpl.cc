@@ -161,3 +161,33 @@ HashMapLoader::fetchAggregatedPairs(int num) {
 
   return res;
 }
+
+
+void
+MergeSortLoader::prepare(JNIEnv* env) {
+  for (auto&& [idx, dataChunk] : dataChunks) {
+    deserializeKeys(env, dataChunk);
+  }
+
+  order(env);
+}
+
+vector<KVPair>
+MergeSortLoader::fetch(int num) {
+  auto first = orderedChunk.begin();
+  auto last = first + min(num, static_cast<int>(orderedChunk.size()));
+
+  auto res = vector<KVPair>(first, last);
+  orderedChunk.erase(first, last);
+
+  return res;
+}
+
+void
+MergeSortLoader::order(JNIEnv* env) {
+  for (auto&& [chunk_id, chunk] : dataChunks) {
+    orderedChunk.insert(orderedChunk.end(), chunk.begin(), chunk.end());
+  }
+
+  stable_sort(orderedChunk.begin(), orderedChunk.end(), Comparator(env));
+}
