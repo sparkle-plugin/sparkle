@@ -143,26 +143,6 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
             ShuffleDataModel.KValueTypeId.Float, SHUFFLE_STORE_BATCH_SERIALIZATION_SIZE,
             ordering) //true to allow sort/merge-sort with ordering.
         }
-        case doubleValue: Double => {
-          kvalueTypeId = ShuffleDataModel.KValueTypeId.Double
-          shuffleStoreMgr.createMapShuffleStore(
-            serializationResource.getKryoInstance(),
-            serializationResource.getByteBuffer(),
-            threadLocalShuffleResource.getLogicalThreadId,
-            shuffleId, mapId,numberOfPartitions,
-            ShuffleDataModel.KValueTypeId.Double, SHUFFLE_STORE_BATCH_SERIALIZATION_SIZE,
-            ordering) //true to allow sort/merge-sort with ordering.
-        }
-        case stringValue: String => {
-          kvalueTypeId = ShuffleDataModel.KValueTypeId.String
-          shuffleStoreMgr.createMapShuffleStore(
-            serializationResource.getKryoInstance(),
-            serializationResource.getByteBuffer(),
-            threadLocalShuffleResource.getLogicalThreadId,
-            shuffleId, mapId,numberOfPartitions,
-            ShuffleDataModel.KValueTypeId.String, SHUFFLE_STORE_BATCH_SERIALIZATION_SIZE,
-            ordering) //true to allow sort/merge-sort with ordering.
-        }
         case byteArrayValue: Array[Byte] => {
           kvalueTypeId = ShuffleDataModel.KValueTypeId.ByteArray
           shuffleStoreMgr.createMapShuffleStore(
