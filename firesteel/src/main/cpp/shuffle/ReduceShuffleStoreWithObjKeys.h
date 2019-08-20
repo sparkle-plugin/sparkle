@@ -8,6 +8,7 @@
 #include "MapStatus.h"
 #include "GenericReduceShuffleStore.h"
 #include "KVPairLoader.h"
+#include "EnumKvTypes.h"
 
 using namespace std;
 
@@ -60,7 +61,8 @@ class ReduceShuffleStoreWithObjKeys: public GenericReduceShuffleStore {
   const pair<byte*, size_t> buffer;
   const bool needOrdering;
   const bool needAggregation;
-  const KValueTypeDefinition kvTypeDefinition {KValueTypeId::Object};
+  const KValueTypeDefinition kvTypeDefinition
+    {KValueTypeDefinition(static_cast<KValueTypeId>(6))};
   VValueTypeDefinition vvTypeDefinition;
 
   KVPairLoader* kvPairLoader {nullptr};
