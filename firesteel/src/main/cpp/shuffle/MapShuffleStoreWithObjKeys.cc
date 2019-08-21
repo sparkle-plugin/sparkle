@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <utility>
+#include "../jnishuffle/JniUtils.h"
 #include "MapShuffleStoreWithObjKeys.h"
 #include "KVPair.h"
 #include "ShuffleConstants.h"
@@ -94,30 +95,7 @@ MapShuffleStoreWithObjKeys::shutdown() {
 
 void
 MapShuffleStoreWithObjKeys::sortPairs(JNIEnv* env) {
-  class Comparator {
-  public:
-    Comparator(JNIEnv* env) : jenv(env) {};
-
-    bool operator ()(const KVPair& lpair, const KVPair& rpair) {
-      if (lpair.getPartition() != rpair.getPartition()) {
-        return lpair.getPartition() < rpair.getPartition();
-      }
-
-      jobject lkey {lpair.getKey()};
-      jobject rkey {rpair.getKey()};
-
-      jclass clazz {jenv->GetObjectClass(lkey)};
-      jmethodID compareTo {jenv->GetMethodID(clazz, "compareTo", "(Ljava/lang/Object;)I")};
-      int result {jenv->CallIntMethod(lkey, compareTo, rkey)};
-
-      return result<0;
-    }
-
-  private:
-    JNIEnv* jenv = nullptr;
-  };
-
-  stable_sort(kvPairs.begin(), kvPairs.end(), Comparator(env));
+  stable_sort(kvPairs.begin(), kvPairs.end(), shuffle::Comparator(env));
 }
 
 void

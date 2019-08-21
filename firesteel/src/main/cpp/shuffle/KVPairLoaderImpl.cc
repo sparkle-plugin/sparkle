@@ -6,6 +6,7 @@
 #include <functional>
 #include <cstring>
 #include "globalheap/globalheap.hh"
+#include "../jnishuffle/JniUtils.h"
 #include "KVPairLoader.h"
 
 using namespace std;
@@ -207,5 +208,5 @@ MergeSortLoader::order(JNIEnv* env) {
     orderedChunk.insert(orderedChunk.end(), chunk.begin(), chunk.end());
   }
 
-  stable_sort(orderedChunk.begin(), orderedChunk.end(), Comparator(env));
+  stable_sort(orderedChunk.begin(), orderedChunk.end(), shuffle::Comparator(env));
 }

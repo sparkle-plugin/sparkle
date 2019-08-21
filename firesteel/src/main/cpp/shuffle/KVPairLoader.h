@@ -136,26 +136,6 @@ public:
   vector<KVPair> fetch(int num) override;
 private:
   void order(JNIEnv* env);
-
-  struct Comparator {
-  public:
-    Comparator(JNIEnv* env) : env(env) {};
-
-    bool operator ()(const KVPair& lpair, const KVPair& rpair) {
-      jobject lkey {lpair.getKey()};
-      jobject rkey {rpair.getKey()};
-
-      jclass clazz {env->GetObjectClass(lkey)};
-      jmethodID compareTo {env->GetMethodID(clazz, "compareTo", "(Ljava/lang/Object;)I")};
-      int result {env->CallIntMethod(lkey, compareTo, rkey)};
-
-      return result<0;
-    }
-
-  private:
-    JNIEnv* env {nullptr};
-  };
-
   vector<KVPair> orderedChunk;
 };
 #endif
