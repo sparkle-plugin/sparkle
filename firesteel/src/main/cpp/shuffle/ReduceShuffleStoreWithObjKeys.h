@@ -2,6 +2,7 @@
 #define REDUCE_SHUFFLE_STORE_WITH_OBJ_KEYS_H__
 
 #include <jni.h>
+#include <memory>
 #include <vector>
 #include <stdexcept>
 #include <utility>
@@ -18,9 +19,7 @@ class ReduceShuffleStoreWithObjKeys: public GenericReduceShuffleStore {
                                 int _reducerId, unsigned char* _buffer,
                                 size_t _bufferCapacity, bool ordering,
                                 bool aggregation);
-  ~ReduceShuffleStoreWithObjKeys() {
-    delete kvPairLoader;
-  }
+  ~ReduceShuffleStoreWithObjKeys() {}
 
   inline KValueTypeDefinition getKValueType() override {
     return kvTypeDefinition;
@@ -65,7 +64,7 @@ class ReduceShuffleStoreWithObjKeys: public GenericReduceShuffleStore {
     {KValueTypeDefinition(static_cast<KValueTypeId>(6))};
   VValueTypeDefinition vvTypeDefinition;
 
-  KVPairLoader* kvPairLoader {nullptr};
+  unique_ptr<KVPairLoader> kvPairLoader {nullptr};
 
   inline vector<pair<region_id, offset>> toChunkPtrs() {
     vector<pair<region_id, offset>> pairs;

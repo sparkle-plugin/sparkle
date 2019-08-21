@@ -1,3 +1,4 @@
+#include <memory>
 #include <vector>
 #include "ReduceShuffleStoreWithObjKeys.h"
 
@@ -18,10 +19,13 @@ ReduceShuffleStoreWithObjKeys(const ReduceStatus& status,
   vector<pair<region_id, offset>> idxChunkPtrs {toChunkPtrs()};
 
   if (needAggregation) {
-    kvPairLoader = new HashMapLoader(reducerId, idxChunkPtrs);
+    kvPairLoader =
+      unique_ptr<KVPairLoader>(new HashMapLoader(reducerId, idxChunkPtrs));
   } else if (needOrdering) {
-    kvPairLoader = new MergeSortLoader(reducerId, idxChunkPtrs);
+    kvPairLoader =
+      unique_ptr<KVPairLoader>(new MergeSortLoader(reducerId, idxChunkPtrs));
   } else{
-    kvPairLoader = new PassThroughLoader(reducerId, idxChunkPtrs);
+    kvPairLoader =
+      unique_ptr<KVPairLoader>(new PassThroughLoader(reducerId, idxChunkPtrs));
   }
 }

@@ -2,6 +2,7 @@
 #define MAPSHUFFLESTORE_WITH_OBJ_KEYS_
 
 #include <jni.h>
+#include <memory>
 #include <glog/logging.h>
 #include <iostream>
 #include <vector>
@@ -28,7 +29,7 @@ public:
    * Write stored Key-Value pairs into the shared memory.
    * If need ordering, sort the pairs before write.
    */
-  MapStatus* write(JNIEnv* env);
+  unique_ptr<MapStatus> write(JNIEnv* env);
   void deleteJobjectKeys(JNIEnv* env);
 
   KValueTypeDefinition getKValueType() override {

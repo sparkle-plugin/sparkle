@@ -37,7 +37,7 @@ MapShuffleStoreWithObjKeys::storeKVPairs(
   return ;
 }
 
-MapStatus*
+unique_ptr<MapStatus>
 MapShuffleStoreWithObjKeys::write(JNIEnv* env) {
   assert(!kvPairs.empty());
 
@@ -53,9 +53,9 @@ MapShuffleStoreWithObjKeys::write(JNIEnv* env) {
   writeDataChunk(offsets);
 
   // fill MapStatus with corresponding stats.
-  MapStatus* mapStatus =
+  unique_ptr<MapStatus> mapStatus(
     new MapStatus(stats.indexChunkAddr.first,
-                  stats.indexChunkAddr.second, numPartitions, mapId);
+                  stats.indexChunkAddr.second, numPartitions, mapId));
   for (int i=0; i<(int)stats.bucketSizes.size(); ++i) {
     mapStatus->setBucketSize(i, stats.bucketSizes[i]);
   }

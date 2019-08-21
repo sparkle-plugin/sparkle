@@ -80,9 +80,7 @@ public:
   HashMapLoader(int _reducerId, vector<pair<region_id, offset>>& _chunkPtrs)
     : KVPairLoader(_reducerId, _chunkPtrs) {
   }
-  ~HashMapLoader() {
-    delete hashmap;
-  }
+  ~HashMapLoader() {}
 
   void prepare(JNIEnv* env) override;
   vector<vector<KVPair>> fetchAggregatedPairs(int num) override;
@@ -122,7 +120,7 @@ private:
     JNIEnv* env {nullptr};
   };
 
-  unordered_map<jobject, vector<KVPair>, Hasher, EqualTo>* hashmap;
+  unique_ptr<unordered_map<jobject, vector<KVPair>, Hasher, EqualTo>> hashmap;
 };
 
 class MergeSortLoader : public KVPairLoader {

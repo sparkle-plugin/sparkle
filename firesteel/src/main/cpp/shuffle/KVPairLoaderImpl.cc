@@ -151,7 +151,7 @@ void
 HashMapLoader::aggregate(JNIEnv* env) {
   // group by keys.
   hashmap =
-    new unordered_map<jobject, vector<KVPair>, Hasher, EqualTo>(0, Hasher(env), EqualTo(env));
+    make_unique<unordered_map<jobject, vector<KVPair>, Hasher, EqualTo>>(0, Hasher(env), EqualTo(env));
   for (auto&& [idx, dataChunk] : dataChunks) {
     for (auto& pair : dataChunk) {
       auto it {hashmap->find(pair.getKey())};

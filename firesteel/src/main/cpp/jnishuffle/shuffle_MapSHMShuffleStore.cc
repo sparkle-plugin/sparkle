@@ -17,6 +17,7 @@
 
 #include <glog/logging.h>
 #include <iostream>
+#include <memory>
 #include "com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore.h"
 #include "MapShuffleStoreManager.h"
 #include "ShuffleStoreManager.h"
@@ -631,7 +632,7 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsor
           MapShuffleStoreWithObjKeys* storePtr
             = dynamic_cast<MapShuffleStoreWithObjKeys*>(gstore);
 
-          MapStatus* mapStatus {storePtr->write(env)};
+          unique_ptr<MapStatus> mapStatus {storePtr->write(env)};
 
           // update Java-side MapStatus.
           jclass retClazz = env->GetObjectClass(mStatus);
@@ -644,23 +645,20 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsor
             env->SetLongField(mStatus, fidOffset, mapStatus->getOffsetOfIndexBucket());
           }
           {
-            jlong* tmp = new jlong[totalNumberOfPartitions];
+            unique_ptr<jlong[]> tmp(new jlong[totalNumberOfPartitions]);
             vector<int>& sizes = mapStatus->getBucketSizes();
             for (int i=0; i<totalNumberOfPartitions; ++i) {
               tmp[i] = (long)sizes[i];
             }
 
             jlongArray bucketSizes {env->NewLongArray(totalNumberOfPartitions)};
-            env->SetLongArrayRegion(bucketSizes, 0, totalNumberOfPartitions, tmp);
+            env->SetLongArrayRegion(bucketSizes, 0, totalNumberOfPartitions, tmp.get());
 
             jfieldID fidMapStatus {env->GetFieldID(retClazz, "mapStatus", "[J")};
             env->SetObjectField(mStatus, fidMapStatus, bucketSizes);
-
-            delete [] tmp;
           }
 
           storePtr->deleteJobjectKeys(env);
-          delete mapStatus;
           break;
         }
         case KValueTypeId::Unknown:
