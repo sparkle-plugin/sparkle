@@ -43,12 +43,18 @@ class ReduceShuffleStoreWithObjKeys: public GenericReduceShuffleStore {
     kvPairLoader->prepare(env);
   }
 
-  inline vector<KVPair> fetch(int num) {
+  inline vector<ReduceKVPair> fetch(int num) {
     return kvPairLoader->fetch(num);
   }
 
-  inline vector<vector<KVPair>> fetchAggregatedPairs(int num) {
+  inline vector<vector<ReduceKVPair>> fetchAggregatedPairs(int num) {
     return kvPairLoader->fetchAggregatedPairs(num);
+  }
+
+  inline void deleteJobjectKeys(JNIEnv* env, vector<ReduceKVPair>& kvpairs) {
+    for (auto& pair : kvpairs) {
+      env->DeleteGlobalRef(pair.getKey());
+    }
   }
 
   void stop() override {}

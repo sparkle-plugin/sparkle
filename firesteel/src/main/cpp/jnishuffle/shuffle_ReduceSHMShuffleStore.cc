@@ -472,7 +472,7 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
     reinterpret_cast<ReduceShuffleStoreWithObjKeys*> (ptrToReduceStore);
 
   // retrieve knumbers kv pairs from buckets via the store.
-  vector<vector<KVPair>> pairs {reduceShuffleStore->fetchAggregatedPairs(knumbers)};
+  vector<vector<ReduceKVPair>> pairs {reduceShuffleStore->fetchAggregatedPairs(knumbers)};
   int actualNumKVPairs = static_cast<int>(pairs.size());
 
   byte* buffer = (byte*)env->GetDirectBufferAddress(byteBuffer);
@@ -494,12 +494,11 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
       buffer += serValueSize;
 
       actualOffset += serValueSize;
-
-      // cleanup GlobalRef here.
-      env->DeleteGlobalRef(pair.getKey());
     }
 
     valueOffsets.push_back(actualOffset);
+
+    reduceShuffleStore->deleteJobjectKeys(env, pairs[i]);
   }
 
   env->SetIntArrayRegion(voffsetsArray, 0, actualNumKVPairs, valueOffsets.data());
@@ -1872,7 +1871,7 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
   ReduceShuffleStoreWithObjKeys* reduceShuffleStore =
     reinterpret_cast<ReduceShuffleStoreWithObjKeys*> (ptrToReduceStore);
 
-  vector<KVPair> pairs {reduceShuffleStore->fetch(knumbers)};
+  vector<ReduceKVPair> pairs {reduceShuffleStore->fetch(knumbers)};
   int actualNumKVPairs = static_cast<int>(pairs.size());
 
   byte* buffer = (byte*)env->GetDirectBufferAddress(byteBuffer);
@@ -1882,7 +1881,6 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
   int actualOffset {0};
   for (int i=0; i<actualNumKVPairs; ++i) {
     env->SetObjectArrayElement(okvalues, i, pairs[i].getKey());
-    env->DeleteGlobalRef(pairs[i].getKey());
 
     int serValueSize = pairs[i].getSerValueSize();
     if (currentBufferSize + serValueSize > buffer_capacity) {
@@ -1895,6 +1893,7 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
     actualOffset += serValueSize;
     valueOffsets.push_back(actualOffset);
   }
+  reduceShuffleStore->deleteJobjectKeys(env, pairs);
 
   env->SetIntArrayRegion(voffsetsArray, 0, actualNumKVPairs, valueOffsets.data());
 

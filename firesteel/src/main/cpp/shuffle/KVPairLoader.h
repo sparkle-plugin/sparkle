@@ -14,7 +14,7 @@ using namespace std;
 typedef uint64_t region_id;
 typedef uint64_t offset;
 typedef uint64_t chunk_id;
-typedef vector<KVPair> chunk;
+typedef vector<ReduceKVPair> chunk;
 
 class KVPairLoader {
 public:
@@ -30,10 +30,10 @@ public:
    * fetch the number of kv pairs.
    * Note: we should call `load` before this method.
    */
-  virtual vector<KVPair> fetch(int num) {
+  virtual vector<ReduceKVPair> fetch(int num) {
     throw new domain_error("not valid here.");
   }
-  virtual vector<vector<KVPair>> fetchAggregatedPairs(int num) {
+  virtual vector<vector<ReduceKVPair>> fetchAggregatedPairs(int num) {
     throw new domain_error("not valid here.");
   }
 
@@ -43,7 +43,7 @@ protected:
   vector<pair<chunk_id, chunk>> dataChunks;
   uint64_t size {0};
   byte* dropUntil(int partitionId, byte* indexChunkPtr);
-  void deserializeKeys(JNIEnv* env, vector<KVPair>& pairs);
+  void deserializeKeys(JNIEnv* env, vector<ReduceKVPair>& pairs);
 private:
   /**
    * load the whole chunks in memory as kv pairs.
@@ -56,22 +56,17 @@ public:
   PassThroughLoader(int _reducerId, vector<pair<region_id, offset>>& _chunkPtrs)
     : KVPairLoader(_reducerId, _chunkPtrs) {
   }
-  ~PassThroughLoader() {
-    for (KVPair& pair : flatChunk) {
-      delete [] pair.getSerKey();
-      delete [] pair.getSerValue();
-    }
-  }
+  ~PassThroughLoader() {}
 
   inline void prepare(JNIEnv* env) override {
     flatten();
     deserializeKeys(env, flatChunk);
   }
 
-  vector<KVPair> fetch(int num) override;
+  vector<ReduceKVPair> fetch(int num) override;
 
 private:
-  vector<KVPair> flatChunk;
+  vector<ReduceKVPair> flatChunk;
   void flatten();
 };
 
@@ -83,7 +78,7 @@ public:
   ~HashMapLoader() {}
 
   void prepare(JNIEnv* env) override;
-  vector<vector<KVPair>> fetchAggregatedPairs(int num) override;
+  vector<vector<ReduceKVPair>> fetchAggregatedPairs(int num) override;
 private:
   void aggregate(JNIEnv* env);
 
@@ -120,7 +115,7 @@ private:
     JNIEnv* env {nullptr};
   };
 
-  unique_ptr<unordered_map<jobject, vector<KVPair>, Hasher, EqualTo>> hashmap;
+  unique_ptr<unordered_map<jobject, vector<ReduceKVPair>, Hasher, EqualTo>> hashmap;
 };
 
 class MergeSortLoader : public KVPairLoader {
@@ -131,9 +126,9 @@ public:
   ~MergeSortLoader() {}
 
   void prepare(JNIEnv* env) override;
-  vector<KVPair> fetch(int num) override;
+  vector<ReduceKVPair> fetch(int num) override;
 private:
   void order(JNIEnv* env);
-  vector<KVPair> orderedChunk;
+  vector<ReduceKVPair> orderedChunk;
 };
 #endif

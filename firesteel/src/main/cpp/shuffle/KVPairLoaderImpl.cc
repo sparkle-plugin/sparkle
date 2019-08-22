@@ -1,3 +1,4 @@
+#include <memory>
 #include <iostream>
 #include <vector>
 #include <unordered_map>
@@ -70,21 +71,19 @@ KVPairLoader::load(int reducerId) {
         memcpy(&serKeySize, index, sizeof(int));
         index += sizeof(int);
 
-        // who frees?
-        byte* serKey = new byte[serKeySize];
-        memcpy(serKey, index, serKeySize);
+        shared_ptr<byte[]> serKey(new byte[serKeySize]);
+        memcpy(serKey.get(), index, serKeySize);
         index += serKeySize;
 
         int serValueSize;
         memcpy(&serValueSize, index, sizeof(int));
         index += sizeof(int);
 
-        // who frees?
-        unsigned char* serValue = new unsigned char[serValueSize];
-        memcpy(serValue, index, serValueSize);
+        shared_ptr<byte[]> serValue(new byte[serValueSize]);
+        memcpy(serValue.get(), index, serValueSize);
         index += serValueSize;
 
-        KVPair pair(serKey, serKeySize, serValue, serValueSize, reducerId);
+        ReduceKVPair pair(serKey, serKeySize, serValue, serValueSize, reducerId);
         dataChunks[i].second.push_back(pair);
       }
     }
@@ -103,7 +102,7 @@ KVPairLoader::dropUntil(int partitionId, byte* index) {
 }
 
 void
-KVPairLoader::deserializeKeys(JNIEnv* env, vector<KVPair>& pairs) {
+KVPairLoader::deserializeKeys(JNIEnv* env, vector<ReduceKVPair>& pairs) {
   jclass deserClazz
     {env->FindClass("org/apache/commons/lang3/SerializationUtils")};
   jmethodID deserMid
@@ -113,19 +112,18 @@ KVPairLoader::deserializeKeys(JNIEnv* env, vector<KVPair>& pairs) {
     jbyteArray keyJbyteArray = env->NewByteArray(pair.getSerKeySize());
     env->SetByteArrayRegion(keyJbyteArray, 0, pair.getSerKeySize(), (jbyte*) pair.getSerKey());
 
-    // TODO: delete this ref somewhere.
     jobject key =
       (jobject) env->NewGlobalRef(env->CallStaticObjectMethod(deserClazz, deserMid, keyJbyteArray));
     pair.setKey(key);
   }
 }
 
-vector<KVPair>
+vector<ReduceKVPair>
 PassThroughLoader::fetch(int num) {
   auto first = flatChunk.begin();
   auto last = first + min(num, static_cast<int>(flatChunk.size()));
 
-  auto res = vector<KVPair>(first, last);
+  auto res = vector<ReduceKVPair>(first, last);
   flatChunk.erase(first, last);
 
   return res;
@@ -151,12 +149,12 @@ void
 HashMapLoader::aggregate(JNIEnv* env) {
   // group by keys.
   hashmap =
-    make_unique<unordered_map<jobject, vector<KVPair>, Hasher, EqualTo>>(0, Hasher(env), EqualTo(env));
+    make_unique<unordered_map<jobject, vector<ReduceKVPair>, Hasher, EqualTo>>(0, Hasher(env), EqualTo(env));
   for (auto&& [idx, dataChunk] : dataChunks) {
     for (auto& pair : dataChunk) {
       auto it {hashmap->find(pair.getKey())};
       if (it == hashmap->end()) {
-        hashmap->insert({pair.getKey(), vector<KVPair>{pair}});
+        hashmap->insert({pair.getKey(), vector<ReduceKVPair>{pair}});
         continue;
       }
 
@@ -166,9 +164,9 @@ HashMapLoader::aggregate(JNIEnv* env) {
   }
 }
 
-vector<vector<KVPair>>
+vector<vector<ReduceKVPair>>
 HashMapLoader::fetchAggregatedPairs(int num) {
-  vector<vector<KVPair>> res;
+  vector<vector<ReduceKVPair>> res;
 
   auto first = hashmap->begin();
   auto last = next(first, min(num, static_cast<int>(hashmap->size())));
@@ -191,12 +189,12 @@ MergeSortLoader::prepare(JNIEnv* env) {
   order(env);
 }
 
-vector<KVPair>
+vector<ReduceKVPair>
 MergeSortLoader::fetch(int num) {
   auto first = orderedChunk.begin();
   auto last = first + min(num, static_cast<int>(orderedChunk.size()));
 
-  auto res = vector<KVPair>(first, last);
+  auto res = vector<ReduceKVPair>(first, last);
   orderedChunk.erase(first, last);
 
   return res;
@@ -208,5 +206,5 @@ MergeSortLoader::order(JNIEnv* env) {
     orderedChunk.insert(orderedChunk.end(), chunk.begin(), chunk.end());
   }
 
-  stable_sort(orderedChunk.begin(), orderedChunk.end(), shuffle::Comparator(env));
+  stable_sort(orderedChunk.begin(), orderedChunk.end(), shuffle::ReduceComparator(env));
 }

@@ -61,7 +61,7 @@ private:
   VValueTypeDefinition vValueTypeDef {};
   const int mapId;
   const bool doOrdering;
-  vector<KVPair> kvPairs;
+  vector<MapKVPair> kvPairs;
 
   int numPartitions {0};
 

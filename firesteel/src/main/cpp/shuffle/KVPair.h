@@ -1,19 +1,25 @@
 #ifndef __KVPAIR_H__
 #define __KVPAIR_H__
 
-#include<cstddef>
-#include<jni.h>
+#include <jni.h>
+#include <memory>
+#include <cstddef>
 
 using namespace std;
 
-class KVPair {
+/*
+ * It it better to decouple the map-side pair and that of reduce-size.
+ * The reasons are shown below.
+ * 1) Memory management is quite differecne between maps and reduces.
+ *    For examaple, serialized value is managed by JVM on the map-side,
+ *    but on the other side it is nothing to do with JVM.
+ * 2) Eliminate unnecessary setters from the reduce-side pairs.
+ */
+class MapKVPair {
  public:
-  KVPair(const jobject& key, unsigned char* value, int vSize, int partition) :
+  MapKVPair(const jobject& key, unsigned char* value, int vSize, int partition) :
     key(key), value(value), vSize(vSize), partition(partition) {}
-  KVPair(byte* serKey,int serKeySize, unsigned char* value, int vSize, int partition):
-    serKey(serKey), serKeySize(serKeySize), value(value),
-    vSize(vSize), partition(partition) {}
-  ~KVPair() {}
+  ~MapKVPair() {}
 
   inline int getPartition() const {return partition;}
   inline jobject getKey() const {return key;}
@@ -30,18 +36,40 @@ class KVPair {
   inline int getSerValueSize() const {return vSize;}
 
  private:
-  /*
-   * TODO:
-   * considering memory footprint it's better use variants for (ser)key.
-   * Please refer to https://en.cppreference.com/w/cpp/utility/variant
-   */
   jobject key {nullptr};
   byte* serKey {nullptr};
   int serKeySize {-1};
 
-  unsigned char* value;
+  unsigned char* value {nullptr};
   int vSize {-1};
 
-  int partition;
+  int partition {-1};
+};
+
+class ReduceKVPair {
+public:
+  ReduceKVPair(shared_ptr<byte[]> serKey,int serKeySize, shared_ptr<byte[]> value, int vSize, int partition):
+    serKey(serKey),
+    serKeySize(serKeySize),
+    value(value),
+    vSize(vSize), partition(partition) {}
+  ~ReduceKVPair() {}
+
+  inline int getPartition() const {return partition;}
+  inline jobject getKey() const {return key;}
+  inline void setKey(jobject& _key) {key = _key;};
+  inline byte* getSerKey() const {return serKey.get();}
+  inline int getSerKeySize() const {return serKeySize;}
+  inline byte* getSerValue() const {return value.get();}
+  inline int getSerValueSize() const {return vSize;}
+private:
+  jobject key {nullptr};
+  shared_ptr<byte[]> serKey {nullptr};
+  int serKeySize {-1};
+
+  shared_ptr<byte[]> value {nullptr};
+  int vSize {-1};
+
+  int partition {-1};
 };
 #endif

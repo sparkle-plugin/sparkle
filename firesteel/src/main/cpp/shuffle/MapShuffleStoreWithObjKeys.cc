@@ -25,7 +25,7 @@ MapShuffleStoreWithObjKeys::storeKVPairs(
 
   int voffset = 0;
   for (int i=0; i<numPairs; ++i) {
-    KVPair pair = KVPair(keys[i] , values+voffset, *(voffsets+i) - voffset, *(partitions+i));
+    auto pair = MapKVPair(keys[i] , values+voffset, *(voffsets+i) - voffset, *(partitions+i));
     kvPairs.push_back(pair);
 
     voffset += pair.getSerValueSize();
@@ -65,7 +65,7 @@ MapShuffleStoreWithObjKeys::write(JNIEnv* env) {
 
 void
 MapShuffleStoreWithObjKeys::deleteJobjectKeys(JNIEnv* env) {
-  for (auto pair : kvPairs) {
+  for (auto& pair : kvPairs) {
     env->DeleteGlobalRef(pair.getKey());
   }
 }
@@ -95,7 +95,7 @@ MapShuffleStoreWithObjKeys::shutdown() {
 
 void
 MapShuffleStoreWithObjKeys::sortPairs(JNIEnv* env) {
-  stable_sort(kvPairs.begin(), kvPairs.end(), shuffle::Comparator(env));
+  stable_sort(kvPairs.begin(), kvPairs.end(), shuffle::MapComparator(env));
 }
 
 void
