@@ -7,6 +7,8 @@
 #include <utility>
 #include <cstdint>
 #include <stdexcept>
+#include <chrono>
+#include <glog/logging.h>
 #include "KVPair.h"
 
 using namespace std;
@@ -20,7 +22,11 @@ class KVPairLoader {
 public:
   KVPairLoader(int _reducerId, vector<pair<region_id, offset>>& _chunkPtrs)
     : reducerId(_reducerId), chunkPtrs(_chunkPtrs) {
+    auto start = chrono::system_clock::now();
     size = load(reducerId);
+    auto end = chrono::system_clock::now();
+    chrono::duration<double> elapsed_s = end - start;
+    LOG(INFO) << "load " << size << " pairs from shm took " << elapsed_s.count() << "s";
   }
   virtual ~KVPairLoader() {}
 
@@ -55,18 +61,32 @@ class PassThroughLoader : public KVPairLoader {
 public:
   PassThroughLoader(int _reducerId, vector<pair<region_id, offset>>& _chunkPtrs)
     : KVPairLoader(_reducerId, _chunkPtrs) {
+    flatChunk.reserve(size);
+    itFlatChunk = flatChunk.begin();
   }
   ~PassThroughLoader() {}
 
   inline void prepare(JNIEnv* env) override {
+    // flatten data chunks.
+    auto start = chrono::system_clock::now();
     flatten();
+    auto end = chrono::system_clock::now();
+    chrono::duration<double> elapsed_s = end - start;
+    LOG(INFO) << "flatten " << size << " pairs took " << elapsed_s.count() << "s";
+    
+    // deserialize keys.
+    start = chrono::system_clock::now();
     deserializeKeys(env, flatChunk);
+    end = chrono::system_clock::now();
+    elapsed_s = end - start;
+    LOG(INFO) << "deserializing " << size << " keys took " << elapsed_s.count() << "s";
   }
 
   vector<ReduceKVPair> fetch(int num) override;
 
 private:
   vector<ReduceKVPair> flatChunk;
+  vector<ReduceKVPair>::iterator itFlatChunk;
   void flatten();
 };
 

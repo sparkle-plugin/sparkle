@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstddef>
 #include <utility>
+#include <chrono>
+#include <glog/logging.h>
 #include "../jnishuffle/JniUtils.h"
 #include "MapShuffleStoreWithObjKeys.h"
 #include "KVPair.h"
@@ -16,7 +18,9 @@ using namespace std;
 
 MapShuffleStoreWithObjKeys::
 MapShuffleStoreWithObjKeys(int mapId, bool ordering)
-  : mapId(mapId), doOrdering(ordering) {}
+  : mapId(mapId), doOrdering(ordering) {
+  kvPairs.reserve(1 * 1024 * 1024);
+}
 
 void
 MapShuffleStoreWithObjKeys::storeKVPairs(
@@ -25,10 +29,9 @@ MapShuffleStoreWithObjKeys::storeKVPairs(
 
   int voffset = 0;
   for (int i=0; i<numPairs; ++i) {
-    auto pair = MapKVPair(keys[i] , values+voffset, *(voffsets+i) - voffset, *(partitions+i));
-    kvPairs.push_back(pair);
-
-    voffset += pair.getSerValueSize();
+    auto serValueSize {*(voffsets+i) - voffset};
+    kvPairs.emplace_back(keys[i] , values+voffset, serValueSize, *(partitions+i));
+    voffset += serValueSize;
 
     // update # of partitions.
     numPartitions = max(numPartitions, *(partitions+i)+1);
@@ -41,16 +44,33 @@ unique_ptr<MapStatus>
 MapShuffleStoreWithObjKeys::write(JNIEnv* env) {
   assert(!kvPairs.empty());
 
+  // sort pairs in the store.
+  auto start = chrono::system_clock::now();
   if (needsOrdering()) {
     sortPairs(env);
   }
+  auto end = chrono::system_clock::now();
+  chrono::duration<double> elapsed_s = end - start;
+  LOG(INFO) << "sorting " << kvPairs.size() << " pairs in the map store took " << elapsed_s.count() << "s";
+
+  // finally start desrializing keys because we don't need POJO after ordering.
+  start = chrono::system_clock::now();
   serializeKeys(env);
+  end = chrono::system_clock::now();
+  elapsed_s = end - start;
+  LOG(INFO) << "serializing " << kvPairs.size() << " keys in the map store took " << elapsed_s.count() << "s";
 
   // transfer kvPairs to the global0.
   vector<byte*> offsets;
+  offsets.reserve(numPartitions);
   NativeMapStatus stats;
+
+  start = chrono::system_clock::now();
   writeIndexChunk(offsets, stats);
   writeDataChunk(offsets);
+  end = chrono::system_clock::now();
+  elapsed_s = end - start;
+  LOG(INFO) << "transfering " << kvPairs.size() << " pairs into global0 took " << elapsed_s.count() << "s";
 
   // fill MapStatus with corresponding stats.
   unique_ptr<MapStatus> mapStatus(
@@ -100,13 +120,23 @@ MapShuffleStoreWithObjKeys::sortPairs(JNIEnv* env) {
 
 void
 MapShuffleStoreWithObjKeys::serializeKeys(JNIEnv* env) {
-  jclass serClazz
-    {env->FindClass("org/apache/commons/lang3/SerializationUtils")};
-  jmethodID serMid
-    {env->GetStaticMethodID(serClazz, "serialize", "(Ljava/io/Serializable;)[B")};
+  // org/apache/commons/lang3/SerializationUtils is too slow.
+  // It takes 15 sec to serialize 5,000,000 int keys.
+  static int kPoolSize = 1024; // 1kB
+
+  jclass initiatorClazz {env->FindClass("com/twitter/chill/KryoInstantiator")};
+  jobject kryoInitiator
+    {env->NewObject(initiatorClazz, env->GetMethodID(initiatorClazz, "<init>", "()V"))};
+
+  jclass serClazz {env->FindClass("com/twitter/chill/KryoPool")};
+  jmethodID factoryMid
+  {env->GetStaticMethodID(serClazz, "withByteArrayOutputStream", "(ILcom/twitter/chill/KryoInstantiator;)Lcom/twitter/chill/KryoPool;")};
+  jobject kryo {env->CallStaticObjectMethod(serClazz, factoryMid, kPoolSize, kryoInitiator)};
+
+  jmethodID serMid {env->GetMethodID(serClazz, "toBytesWithClass", "(Ljava/lang/Object;)[B")};
   for (auto& kvPair : kvPairs) {
     jbyteArray byteArray =
-      (jbyteArray)env->CallStaticObjectMethod(serClazz, serMid, kvPair.getKey());
+      (jbyteArray)env->CallObjectMethod(kryo, serMid, kvPair.getKey());
 
     jbyte* bytes =
       env->GetByteArrayElements(byteArray , NULL);

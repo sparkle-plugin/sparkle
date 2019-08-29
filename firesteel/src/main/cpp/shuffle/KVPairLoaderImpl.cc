@@ -6,6 +6,8 @@
 #include <utility>
 #include <functional>
 #include <cstring>
+#include <chrono>
+#include <glog/logging.h>
 #include "globalheap/globalheap.hh"
 #include "../jnishuffle/JniUtils.h"
 #include "KVPairLoader.h"
@@ -18,7 +20,7 @@ KVPairLoader::load(int reducerId) {
   // decode the index chunk.
   vector<pair<region_id, offset>> dataChunkPtrs;
   vector<int> numPairs;
-  for (auto chunkPtr : chunkPtrs) {
+  for (auto& chunkPtr : chunkPtrs) {
     RRegion::TPtr<void> idxChunkPtr(chunkPtr.first, chunkPtr.second);
     byte* index = (byte*)idxChunkPtr.get();
     {
@@ -53,17 +55,19 @@ KVPairLoader::load(int reducerId) {
       memcpy(&numPair, index, sizeof(int));
       index += sizeof(int);
 
-      dataChunkPtrs.push_back(make_pair(rid, roffset));
-      numPairs.push_back(numPair);
+      dataChunkPtrs.emplace_back(rid, roffset);
+      numPairs.emplace_back(numPair);
     }
   }
 
   // decode data chunks.
+  size_t numKVPairs {0};
   for (size_t i=0; i<dataChunkPtrs.size(); ++i) {
     RRegion::TPtr<void> dataChunkPtr(dataChunkPtrs[i].first, dataChunkPtrs[i].second);
     byte* index = (byte*) dataChunkPtr.get();
 
-    dataChunks.push_back(make_pair(i, chunk()));
+    dataChunks.emplace_back(i, chunk());
+    dataChunks[i].second.reserve(numPairs[i]);
     for (int j=0; j<numPairs[i]; ++j) {
       // [serKeySize, serKey, serValueSize, serValue]
       {
@@ -83,13 +87,13 @@ KVPairLoader::load(int reducerId) {
         memcpy(serValue.get(), index, serValueSize);
         index += serValueSize;
 
-        ReduceKVPair pair(serKey, serKeySize, serValue, serValueSize, reducerId);
-        dataChunks[i].second.push_back(pair);
+        dataChunks[i].second.emplace_back(serKey, serKeySize, serValue, serValueSize, reducerId);
       }
     }
+    numKVPairs += dataChunks[i].second.size();
   }
 
-  return dataChunks.size();
+  return numKVPairs;
 }
 
 byte*
@@ -103,28 +107,42 @@ KVPairLoader::dropUntil(int partitionId, byte* index) {
 
 void
 KVPairLoader::deserializeKeys(JNIEnv* env, vector<ReduceKVPair>& pairs) {
-  jclass deserClazz
-    {env->FindClass("org/apache/commons/lang3/SerializationUtils")};
-  jmethodID deserMid
-    {env->GetStaticMethodID(deserClazz, "deserialize", "([B)Ljava/lang/Object;")};
-  for (auto& pair : pairs) {
+  // org/apache/commons/lang3/SerializationUtils is too slow.
+  // It takes 10 sec to deserialize 1,250,000 int keys.
+  static int kPoolSize = 1024; // 1kB.
 
+  jclass initiatorClazz {env->FindClass("com/twitter/chill/KryoInstantiator")};
+  jobject kryoInitiator
+    {env->NewObject(initiatorClazz, env->GetMethodID(initiatorClazz, "<init>", "()V"))};
+
+  jclass serClazz {env->FindClass("com/twitter/chill/KryoPool")};
+  jmethodID factoryMid
+  {env->GetStaticMethodID(serClazz, "withByteArrayOutputStream", "(ILcom/twitter/chill/KryoInstantiator;)Lcom/twitter/chill/KryoPool;")};
+  jobject kryo {env->CallStaticObjectMethod(serClazz, factoryMid, kPoolSize, kryoInitiator)};
+
+  jmethodID deserMid {env->GetMethodID(serClazz, "fromBytes", "([B)Ljava/lang/Object;")};
+  for (auto& pair : pairs) {
     jbyteArray keyJbyteArray = env->NewByteArray(pair.getSerKeySize());
     env->SetByteArrayRegion(keyJbyteArray, 0, pair.getSerKeySize(), (jbyte*) pair.getSerKey());
 
     jobject key =
-      (jobject) env->NewGlobalRef(env->CallStaticObjectMethod(deserClazz, deserMid, keyJbyteArray));
+      (jobject) env->NewGlobalRef(env->CallObjectMethod(kryo, deserMid, keyJbyteArray));
     pair.setKey(key);
   }
 }
 
 vector<ReduceKVPair>
 PassThroughLoader::fetch(int num) {
-  auto first = flatChunk.begin();
-  auto last = first + min(num, static_cast<int>(flatChunk.size()));
+  auto start = chrono::system_clock::now();
 
-  auto res = vector<ReduceKVPair>(first, last);
-  flatChunk.erase(first, last);
+  auto beginIt = itFlatChunk;
+  auto endIt = beginIt + min(num, static_cast<int>(flatChunk.size()));
+  auto res = vector<ReduceKVPair>(beginIt, endIt);
+  itFlatChunk = endIt;
+
+  auto end = chrono::system_clock::now();
+  chrono::duration<double> elapsed_s = end - start;
+  LOG(INFO) << "fetch " << res.size() << " pairs from flatChunk took " << elapsed_s.count() << "s";
 
   return res;
 }
@@ -132,7 +150,9 @@ PassThroughLoader::fetch(int num) {
 void
 PassThroughLoader::flatten() {
   for (auto&& [chunk_id, chunk] : dataChunks) {
-    flatChunk.insert(flatChunk.end(), chunk.begin(), chunk.end());
+    flatChunk.insert(flatChunk.end(),
+                     make_move_iterator(chunk.begin()),
+                     make_move_iterator(chunk.end()));
   }
 }
 
