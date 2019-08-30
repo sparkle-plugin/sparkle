@@ -5,7 +5,6 @@
 #include <utility>
 #include <chrono>
 #include <glog/logging.h>
-#include "../jnishuffle/JniUtils.h"
 #include "MapShuffleStoreWithObjKeys.h"
 #include "KVPair.h"
 #include "ShuffleConstants.h"
@@ -13,6 +12,7 @@
 #include "ShuffleDataSharedMemoryManager.h"
 #include "ShuffleDataSharedMemoryManagerHelper.h"
 #include "MapStatus.h"
+#include "../jnishuffle/JniUtils.h"
 
 using namespace std;
 

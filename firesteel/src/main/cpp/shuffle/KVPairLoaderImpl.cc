@@ -9,8 +9,8 @@
 #include <chrono>
 #include <glog/logging.h>
 #include "globalheap/globalheap.hh"
-#include "../jnishuffle/JniUtils.h"
 #include "KVPairLoader.h"
+#include "../jnishuffle/JniUtils.h"
 
 using namespace std;
 using namespace alps;
@@ -106,29 +106,13 @@ KVPairLoader::dropUntil(int partitionId, byte* index) {
 }
 
 void
-KVPairLoader::deserializeKeys(JNIEnv* env, vector<ReduceKVPair>& pairs) {
-  // org/apache/commons/lang3/SerializationUtils is too slow.
-  // It takes 10 sec to deserialize 1,250,000 int keys.
-  static int kPoolSize = 1024; // 1kB.
-
-  jclass initiatorClazz {env->FindClass("com/twitter/chill/KryoInstantiator")};
-  jobject kryoInitiator
-    {env->NewObject(initiatorClazz, env->GetMethodID(initiatorClazz, "<init>", "()V"))};
-
-  jclass serClazz {env->FindClass("com/twitter/chill/KryoPool")};
-  jmethodID factoryMid
-  {env->GetStaticMethodID(serClazz, "withByteArrayOutputStream", "(ILcom/twitter/chill/KryoInstantiator;)Lcom/twitter/chill/KryoPool;")};
-  jobject kryo {env->CallStaticObjectMethod(serClazz, factoryMid, kPoolSize, kryoInitiator)};
-
-  jmethodID deserMid {env->GetMethodID(serClazz, "fromBytes", "([B)Ljava/lang/Object;")};
-  for (auto& pair : pairs) {
-    jbyteArray keyJbyteArray = env->NewByteArray(pair.getSerKeySize());
-    env->SetByteArrayRegion(keyJbyteArray, 0, pair.getSerKeySize(), (jbyte*) pair.getSerKey());
-
-    jobject key =
-      (jobject) env->NewGlobalRef(env->CallObjectMethod(kryo, deserMid, keyJbyteArray));
-    pair.setKey(key);
-  }
+PassThroughLoader::prepare(JNIEnv* env) {
+  // flatten data chunks.
+  auto start = chrono::system_clock::now();
+  flatten();
+  auto end = chrono::system_clock::now();
+  chrono::duration<double> elapsed_s = end - start;
+  LOG(INFO) << "flatten " << size << " pairs took " << elapsed_s.count() << "s";
 }
 
 vector<ReduceKVPair>
@@ -159,7 +143,7 @@ PassThroughLoader::flatten() {
 void
 HashMapLoader::prepare(JNIEnv* env) {
   for (auto&& [idx, dataChunk] : dataChunks) {
-    deserializeKeys(env, dataChunk);
+    shuffle::deserializeKeys(env, dataChunk);
   }
 
   aggregate(env);
@@ -203,7 +187,7 @@ HashMapLoader::fetchAggregatedPairs(int num) {
 void
 MergeSortLoader::prepare(JNIEnv* env) {
   for (auto&& [idx, dataChunk] : dataChunks) {
-    deserializeKeys(env, dataChunk);
+    shuffle::deserializeKeys(env, dataChunk);
   }
 
   order(env);

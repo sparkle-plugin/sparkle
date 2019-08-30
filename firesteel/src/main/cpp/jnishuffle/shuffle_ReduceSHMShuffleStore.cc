@@ -17,6 +17,8 @@
 
 #include <glog/logging.h>
 #include <stdexcept>
+#include <vector>
+#include <chrono>
 #include "com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore.h"
 #include "ShuffleStoreManager.h"
 #include "ReduceShuffleStoreManager.h"
@@ -26,6 +28,7 @@
 #include "ReduceShuffleStoreWithObjKeys.h"
 #include "ExtensibleByteBuffers.h"
 #include "GenericReduceShuffleStore.h"
+#include "JniUtils.h"
 
 using namespace std;
 
@@ -1873,6 +1876,15 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
 
   vector<ReduceKVPair> pairs {reduceShuffleStore->fetch(knumbers)};
   int actualNumKVPairs = static_cast<int>(pairs.size());
+
+  // leverage laziness to save unnecessary deserialization.
+  if (reduceShuffleStore->isPassThrough()) {
+    auto start = chrono::system_clock::now();
+    shuffle::deserializeKeys(env, pairs);
+    auto end = chrono::system_clock::now();
+    chrono::duration<double> elapsed_s = end - start;
+    LOG(INFO) << "deserializing " << pairs.size() << " keys took " << elapsed_s.count() << "s";
+  }
 
   byte* buffer = (byte*)env->GetDirectBufferAddress(byteBuffer);
   int currentBufferSize {0};

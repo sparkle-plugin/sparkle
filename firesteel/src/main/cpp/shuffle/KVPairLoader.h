@@ -10,6 +10,7 @@
 #include <chrono>
 #include <glog/logging.h>
 #include "KVPair.h"
+//#include "../jnishuffle/JniUtils.h"
 
 using namespace std;
 
@@ -49,7 +50,6 @@ protected:
   vector<pair<chunk_id, chunk>> dataChunks;
   uint64_t size {0};
   byte* dropUntil(int partitionId, byte* indexChunkPtr);
-  void deserializeKeys(JNIEnv* env, vector<ReduceKVPair>& pairs);
 private:
   /**
    * load the whole chunks in memory as kv pairs.
@@ -66,24 +66,8 @@ public:
   }
   ~PassThroughLoader() {}
 
-  inline void prepare(JNIEnv* env) override {
-    // flatten data chunks.
-    auto start = chrono::system_clock::now();
-    flatten();
-    auto end = chrono::system_clock::now();
-    chrono::duration<double> elapsed_s = end - start;
-    LOG(INFO) << "flatten " << size << " pairs took " << elapsed_s.count() << "s";
-    
-    // deserialize keys.
-    start = chrono::system_clock::now();
-    deserializeKeys(env, flatChunk);
-    end = chrono::system_clock::now();
-    elapsed_s = end - start;
-    LOG(INFO) << "deserializing " << size << " keys took " << elapsed_s.count() << "s";
-  }
-
+  void prepare(JNIEnv* env) override;
   vector<ReduceKVPair> fetch(int num) override;
-
 private:
   vector<ReduceKVPair> flatChunk;
   vector<ReduceKVPair>::iterator itFlatChunk;

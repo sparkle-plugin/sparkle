@@ -39,6 +39,10 @@ class ReduceShuffleStoreWithObjKeys: public GenericReduceShuffleStore {
     return needAggregation;
   }
 
+  inline bool isPassThrough() {
+    return (!needOrdering && !needAggregation);
+  }
+
   inline void prepare(JNIEnv* env) {
     kvPairLoader->prepare(env);
   }
