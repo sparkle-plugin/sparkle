@@ -186,20 +186,33 @@ HashMapLoader::fetchAggregatedPairs(int num) {
 
 void
 MergeSortLoader::prepare(JNIEnv* env) {
+  auto start = chrono::system_clock::now();
   for (auto&& [idx, dataChunk] : dataChunks) {
     shuffle::deserializeKeys(env, dataChunk);
   }
+  auto end = chrono::system_clock::now();
+  chrono::duration<double> elapsed_s = end - start;
+  LOG(INFO) << "desrializing " << size << " pairs from chunks took " << elapsed_s.count() << "s";
 
+  start = chrono::system_clock::now();
   order(env);
+  end = chrono::system_clock::now();
+  elapsed_s = end - start;
+  LOG(INFO) << "ordering " << size << " pairs from chunks took " << elapsed_s.count() << "s";
 }
 
 vector<ReduceKVPair>
 MergeSortLoader::fetch(int num) {
-  auto first = orderedChunk.begin();
-  auto last = first + min(num, static_cast<int>(orderedChunk.size()));
+  auto start = chrono::system_clock::now();
 
-  auto res = vector<ReduceKVPair>(first, last);
-  orderedChunk.erase(first, last);
+  auto beginIt = itOrderedChunk;
+  auto endIt = beginIt + min(num, static_cast<int>(orderedChunk.size()));
+  auto res = vector<ReduceKVPair>(beginIt, endIt);
+  itOrderedChunk = endIt;
+
+  auto end = chrono::system_clock::now();
+  chrono::duration<double> elapsed_s = end - start;
+  LOG(INFO) << "fetch " << res.size() << " pairs from orderedChunk took " << elapsed_s.count() << "s";
 
   return res;
 }
@@ -207,7 +220,9 @@ MergeSortLoader::fetch(int num) {
 void
 MergeSortLoader::order(JNIEnv* env) {
   for (auto&& [chunk_id, chunk] : dataChunks) {
-    orderedChunk.insert(orderedChunk.end(), chunk.begin(), chunk.end());
+    orderedChunk.insert(orderedChunk.end(),
+			make_move_iterator(chunk.begin()),
+			make_move_iterator(chunk.end()));
   }
 
   stable_sort(orderedChunk.begin(), orderedChunk.end(), shuffle::ReduceComparator(env));

@@ -193,14 +193,14 @@ MapShuffleStoreWithObjKeys::writeIndexChunk(vector<byte*>& dataChunkLocalOffsets
 
   for (int i=0; i<numPartitions; ++i) {
     // keep BucketSize before hand.
-    mapStatus.bucketSizes.push_back(bucketSizes[i]);
+    mapStatus.bucketSizes.emplace_back(bucketSizes[i]);
 
     // Allocate Data Chuncks using bucketSize.
     // Then, keep the (regionId, offset) pairs in this instance.
     RRegion::TPtr<void> chunk
       = memoryManager->allocate_datachunk(bucketSizes[i]);
     assert(chunk != global_null_ptr);
-    dataChunkPtrs.push_back(make_pair(chunk.region_id(), chunk.offset()));
+    dataChunkPtrs.emplace_back(chunk.region_id(), chunk.offset());
 
     {
       uint64_t regionId {chunk.region_id()};
@@ -219,7 +219,7 @@ MapShuffleStoreWithObjKeys::writeIndexChunk(vector<byte*>& dataChunkLocalOffsets
     }
 
     // save the data chunk head pointers to store pairs into this chunk.
-    dataChunkLocalOffsets.push_back((byte*) chunk.get());
+    dataChunkLocalOffsets.emplace_back((byte*) chunk.get());
   }
 }
 

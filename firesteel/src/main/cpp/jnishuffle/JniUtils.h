@@ -55,11 +55,11 @@ namespace shuffle {
 
       jclass clazz {env->GetObjectClass(lkey)};
       jmethodID compareTo {env->GetMethodID(clazz, "compareTo", "(Ljava/lang/Object;)I")};
-      env->ExceptionClear();
       if (compareTo != NULL) {
         int result {env->CallIntMethod(lkey, compareTo, rkey)};
         return result<0;
       }
+      env->ExceptionClear();
 
       // We adopt partial ordering to unorderable keys as a fallback.
       // If you would like to understand partial ordering, please refere to

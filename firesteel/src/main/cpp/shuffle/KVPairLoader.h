@@ -126,6 +126,8 @@ class MergeSortLoader : public KVPairLoader {
 public:
   MergeSortLoader(int _reducerId, vector<pair<region_id, offset>>& _chunkPtrs)
     : KVPairLoader(_reducerId, _chunkPtrs) {
+    orderedChunk.reserve(size);
+    itOrderedChunk = orderedChunk.begin();
   }
   ~MergeSortLoader() {}
 
@@ -134,5 +136,6 @@ public:
 private:
   void order(JNIEnv* env);
   vector<ReduceKVPair> orderedChunk;
+  vector<ReduceKVPair>::iterator itOrderedChunk;
 };
 #endif
