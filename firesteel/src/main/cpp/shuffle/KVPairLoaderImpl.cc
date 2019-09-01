@@ -120,7 +120,7 @@ PassThroughLoader::fetch(int num) {
   auto start = chrono::system_clock::now();
 
   auto beginIt = itFlatChunk;
-  auto endIt = beginIt + min(num, static_cast<int>(flatChunk.size()));
+  auto endIt = beginIt + min(num, static_cast<int>(distance(beginIt, flatChunk.end())));
   auto res = vector<ReduceKVPair>(beginIt, endIt);
   itFlatChunk = endIt;
 
@@ -184,7 +184,8 @@ HashMapLoader::fetchAggregatedPairs(int num) {
 
   vector<vector<ReduceKVPair>> res;
   auto beginIt = hashmapIt;
-  auto endIt = next(beginIt, min(num, static_cast<int>(hashmap->size())));
+  auto endIt = next(beginIt,
+                    min(num, static_cast<int>(distance(beginIt, hashmap->end()))));
 
   for (auto it=beginIt; it!=endIt; ++it) {
     res.emplace_back(move(it->second));
@@ -222,7 +223,8 @@ MergeSortLoader::fetch(int num) {
   auto start = chrono::system_clock::now();
 
   auto beginIt = itOrderedChunk;
-  auto endIt = beginIt + min(num, static_cast<int>(orderedChunk.size()));
+  auto endIt = beginIt + min(num,
+                             static_cast<int>(distance(beginIt, orderedChunk.end())));
   auto res = vector<ReduceKVPair>(beginIt, endIt);
   itOrderedChunk = endIt;
 
@@ -237,8 +239,8 @@ void
 MergeSortLoader::order(JNIEnv* env) {
   for (auto&& [chunk_id, chunk] : dataChunks) {
     orderedChunk.insert(orderedChunk.end(),
-			make_move_iterator(chunk.begin()),
-			make_move_iterator(chunk.end()));
+                        make_move_iterator(chunk.begin()),
+                        make_move_iterator(chunk.end()));
   }
 
   stable_sort(orderedChunk.begin(), orderedChunk.end(), shuffle::ReduceComparator(env));
