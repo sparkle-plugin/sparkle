@@ -142,11 +142,19 @@ PassThroughLoader::flatten() {
 
 void
 HashMapLoader::prepare(JNIEnv* env) {
+  auto start = chrono::system_clock::now();
   for (auto&& [idx, dataChunk] : dataChunks) {
     shuffle::deserializeKeys(env, dataChunk);
   }
+  auto end = chrono::system_clock::now();
+  chrono::duration<double> elapsed_s = end - start;
+  LOG(INFO) << "deserializing " << size << " pairs from chunks took " << elapsed_s.count() << "s";
 
+  start = chrono::system_clock::now();
   aggregate(env);
+  end = chrono::system_clock::now();
+  elapsed_s = end - start;
+  LOG(INFO) << "aggregating " << size << " pairs into the hashmap took " << elapsed_s.count() << "s";
 }
 
 void
@@ -158,27 +166,35 @@ HashMapLoader::aggregate(JNIEnv* env) {
     for (auto& pair : dataChunk) {
       auto it {hashmap->find(pair.getKey())};
       if (it == hashmap->end()) {
-        hashmap->insert({pair.getKey(), vector<ReduceKVPair>{pair}});
+	 hashmap->emplace(pair.getKey(), vector<ReduceKVPair>{pair});
         continue;
       }
 
       auto& pairs {it->second};
-      pairs.push_back(pair);
+      pairs.emplace_back(move(pair));
     }
   }
+
+  hashmapIt = hashmap->begin();
 }
 
 vector<vector<ReduceKVPair>>
 HashMapLoader::fetchAggregatedPairs(int num) {
+  auto start = chrono::system_clock::now();
+
   vector<vector<ReduceKVPair>> res;
+  auto beginIt = hashmapIt;
+  auto endIt = next(beginIt, min(num, static_cast<int>(hashmap->size())));
 
-  auto first = hashmap->begin();
-  auto last = next(first, min(num, static_cast<int>(hashmap->size())));
-
-  for (auto it=first; it!=last; ++it) {
-    res.push_back(it->second);
+  for (auto it=beginIt; it!=endIt; ++it) {
+    res.emplace_back(move(it->second));
   }
-  hashmap->erase(first, last);
+
+  hashmapIt = endIt;
+
+  auto end = chrono::system_clock::now();
+  chrono::duration<double> elapsed_s = end - start;
+  LOG(INFO) << "fetch " << res.size() << " pairs from chunks took " << elapsed_s.count() << "s";
 
   return res;
 }
