@@ -178,10 +178,8 @@ MapShuffleStoreWithObjKeys::writeIndexChunk(vector<byte*>& dataChunkLocalOffsets
 
   // alloc data chunks, then write their meta data into the index chunk.
   vector<int> bucketSizes(numPartitions); // byte
-  fill(bucketSizes.begin(), bucketSizes.end(), 0);
   // # of pairs(not aggregated) for each partition.
   vector<int> numPairs(numPartitions);
-  fill(numPairs.begin(), numPairs.end(), 0);
 
   for (auto& pair : kvPairs) {
     bucketSizes[pair.getPartition()] +=
