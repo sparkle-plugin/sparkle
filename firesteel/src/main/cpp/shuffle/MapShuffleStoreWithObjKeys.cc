@@ -42,8 +42,6 @@ MapShuffleStoreWithObjKeys::storeKVPairs(
 
 unique_ptr<MapStatus>
 MapShuffleStoreWithObjKeys::write(JNIEnv* env) {
-  assert(!kvPairs.empty());
-
   // sort pairs in the store.
   auto start = chrono::system_clock::now();
   if (needsOrdering()) {
