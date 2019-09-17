@@ -63,7 +63,7 @@ object SharedMemoryMapOutputTracker {
     }
   }
 
-  private def convertMapStatuses(
+  def convertMapStatuses(
       shuffleId: Int,
       startPartition: Int,
       endPartition: Int,
