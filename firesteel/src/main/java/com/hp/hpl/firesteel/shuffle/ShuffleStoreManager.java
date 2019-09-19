@@ -64,8 +64,8 @@ public class ShuffleStoreManager {
      */
     private void initNativeLibrary(String libraryName) {
          try {
-             System.loadLibrary(System.mapLibraryName(libraryName));
-             LOG.info(libraryName + " shared library loaded via mapLibraryName");
+             System.loadLibrary(libraryName);
+             LOG.info(libraryName + " shared library loaded via System.loadLibrary");
          }
          catch (UnsatisfiedLinkError ex){
              try {
