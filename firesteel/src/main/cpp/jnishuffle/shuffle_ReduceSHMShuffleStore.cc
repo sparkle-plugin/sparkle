@@ -347,9 +347,8 @@ JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_
  jboolean needOrdering, jboolean needAggregation) {
 
   ReduceStatus status(reducerId);
+  jclass clazz = env->GetObjectClass(reduceStatus);
   {
-    jclass clazz = env->GetObjectClass(reduceStatus);
-
     jfieldID fidSizes = env->GetFieldID(clazz, "sizes", "[J");
     long* bucketSizes = env->GetLongArrayElements((jlongArray)env->GetObjectField(reduceStatus, fidSizes), NULL);
 
@@ -384,6 +383,28 @@ JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_
                                            KValueTypeId::Object, needOrdering, needAggregation));
 
   resultStore->prepare(env);
+
+  // pass stats to the JVM.
+  {
+    jfieldID fid {env->GetFieldID(clazz, "numDataChunks", "J")};
+    env->SetLongField(reduceStatus, fid, resultStore->getNumDataChunksRead());
+  }
+  {
+    jfieldID fid {env->GetFieldID(clazz, "bytesDataChunks", "J")};
+    env->SetLongField(reduceStatus, fid, resultStore->getBytesDataChunksRead());
+  }
+  {
+    jfieldID fid {env->GetFieldID(clazz, "numRemoteDataChunks", "J")};
+    env->SetLongField(reduceStatus, fid, resultStore->getNumRemoteDataChunksRead());
+  }
+  {
+    jfieldID fid {env->GetFieldID(clazz, "bytesRemoteDataChunks", "J")};
+    env->SetLongField(reduceStatus, fid, resultStore->getBytesRemoteDataChunksRead());
+  }
+  {
+    jfieldID fid {env->GetFieldID(clazz, "numRecords", "J")};
+    env->SetLongField(reduceStatus, fid, resultStore->getNumKVPairsRead());
+  }
 
   return reinterpret_cast<long>(resultStore);
 }

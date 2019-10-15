@@ -61,6 +61,23 @@ class ReduceShuffleStoreWithObjKeys: public GenericReduceShuffleStore {
     }
   }
 
+  // ShuffleReade Stats
+  inline long getNumDataChunksRead() {
+    return reduceStats.numDataChunksRead;
+  }
+  inline long getBytesDataChunksRead() {
+    return reduceStats.bytesDataChunksRead;
+  }
+  inline long getNumRemoteDataChunksRead() {
+    return reduceStats.numRemoteDataChunksRead;
+  }
+  inline long getBytesRemoteDataChunksRead() {
+    return reduceStats.bytesRemoteDataChunksRead;
+  }
+  inline long getNumKVPairsRead() {
+    return reduceStats.numKVPairsRead;
+  }
+
   void stop() override {}
   void shutdown() override {}
 
@@ -83,5 +100,13 @@ class ReduceShuffleStoreWithObjKeys: public GenericReduceShuffleStore {
     }
     return pairs;
   }
+
+  struct Stats {
+    uint64_t numDataChunksRead {0};
+    uint64_t bytesDataChunksRead {0};
+    uint64_t numKVPairsRead {0};
+    uint64_t numRemoteDataChunksRead {0};
+    uint64_t bytesRemoteDataChunksRead {0};
+  } reduceStats;
 };
 #endif

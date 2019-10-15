@@ -28,4 +28,11 @@ ReduceShuffleStoreWithObjKeys(const ReduceStatus& status,
     kvPairLoader =
       unique_ptr<KVPairLoader>(new PassThroughLoader(reducerId, idxChunkPtrs));
   }
+
+  // save Stats into reduceStatus.
+  reduceStats.numDataChunksRead = kvPairLoader->getDataChunksRead();
+  reduceStats.bytesDataChunksRead = kvPairLoader->getDataChunkBytesRead();
+  reduceStats.numRemoteDataChunksRead = kvPairLoader->getRemoteDataChunksRead();
+  reduceStats.bytesRemoteDataChunksRead = kvPairLoader->getRemoteDataChunkBytesRead();
+  reduceStats.numKVPairsRead = kvPairLoader->getTotalNumKVPairs();
 }

@@ -39,18 +39,24 @@ public interface ShuffleDataModel {
         private long mapStatus[];
         private long regionIdOfIndexBucket; 
         private long offsetOfIndexBucket;
+        private long dataChunkWrittenTimeNs;
 
         public MapStatus() {
             mapStatus = null;
             regionIdOfIndexBucket = -1; 
             offsetOfIndexBucket = -1;
+            dataChunkWrittenTimeNs = 0L;
         }
 
-        public MapStatus (long [] status, int regionId, long offset)
+        /**
+           @param writtenTime Time spend writing Data Chunk in nano sec.
+         */
+        public MapStatus (long [] status, int regionId, long offset, long writtenTime)
         {
             this.mapStatus = status;
             this.regionIdOfIndexBucket = regionId;
             this.offsetOfIndexBucket = offset;
+            this.dataChunkWrittenTimeNs = writtenTime;
         }
 
         public long[] getMapStatus () {
@@ -63,6 +69,10 @@ public interface ShuffleDataModel {
 
         public long getOffsetOfIndexBucket() {
             return this.offsetOfIndexBucket;
+        }
+
+        public long getWrittenTimeNs() {
+            return this.dataChunkWrittenTimeNs;
         }
     }
 
@@ -78,12 +88,30 @@ public interface ShuffleDataModel {
         private long offsetsOfIndexChunks[];
         //size of each bucket on the corresponding map.
         private long sizes[];
+        // # of data chunks loaded in the store.
+        private long numDataChunks = 0L;
+        // size of data chunks loaded in the store.
+        private long bytesDataChunks = 0L;
+        //# of remote data chunks loaded in the store.
+        private long numRemoteDataChunks = 0L;
+        // size of remote data chunks loaded in the store.
+        private long bytesRemoteDataChunks = 0L;
+        // # of kvpairs loaded in the store.
+        private long numRecords = 0L;
 
-        public ReduceStatus (int mapIds[], long regionIds[], long offsetToIndexChunks[], long sizes[])  {
+        public ReduceStatus (int mapIds[], long regionIds[], long offsetToIndexChunks[], long sizes[],
+                             long numDataChunks, long bytesDataChunks,
+                             long numRemoteDataChunks, long bytesRemoteDataChunks,
+                             long numRecords) {
             this.mapIds = mapIds;
             this.regionIdsOfIndexChunks =  regionIds;
             this.offsetsOfIndexChunks = offsetToIndexChunks;
             this.sizes = sizes;
+            this.numDataChunks = numDataChunks;
+            this.bytesDataChunks = bytesDataChunks;
+            this.numRemoteDataChunks = numRemoteDataChunks;
+            this.bytesRemoteDataChunks = bytesRemoteDataChunks;
+            this.numRecords = numRecords;
         }
 
         public int [] getMapIds() {
@@ -98,6 +126,22 @@ public interface ShuffleDataModel {
         }
         public long[] getSizes() {
             return this.sizes;
+        }
+
+        public long getNumDataChunks() {
+            return this.numDataChunks;
+        }
+        public long getBytesDataChunks() {
+            return this.bytesDataChunks;
+        }
+        public long getNumRemoteDataChunks() {
+            return this.numRemoteDataChunks;
+        }
+        public long getBytesRemoteDataChunks() {
+            return this.bytesRemoteDataChunks;
+        }
+        public long getNumRecords() {
+            return this.numRecords;
         }
     }
 

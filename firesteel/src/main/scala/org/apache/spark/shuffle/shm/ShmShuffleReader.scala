@@ -161,6 +161,8 @@ private[spark] class ShmShuffleReader[K, C](shuffleStoreMgr:ShuffleStoreManager,
        resultIterator
     }
 
+    context.taskMetrics.mergeShuffleReadMetrics()
+
     //return
     aggregatedIter
   }

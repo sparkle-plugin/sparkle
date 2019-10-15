@@ -10,6 +10,7 @@
 #include <glog/logging.h>
 #include "globalheap/globalheap.hh"
 #include "KVPairLoader.h"
+#include "SimpleUtils.h"
 #include "../jnishuffle/JniUtils.h"
 
 using namespace std;
@@ -20,10 +21,17 @@ KVPairLoader::load(int reducerId) {
   // decode the index chunk.
   vector<pair<region_id, offset>> dataChunkPtrs;
   vector<int> numPairs;
+  vector<bool> isLocalDataChunk;
+  int currentNumaNode {OsUtil::getCurrentNumaNode()};
   for (auto& chunkPtr : chunkPtrs) {
     RRegion::TPtr<void> idxChunkPtr(chunkPtr.first, chunkPtr.second);
     byte* index = (byte*)idxChunkPtr.get();
     {
+      // decode numa node identifier of the corresponding data chunk.
+      int numa;
+      memcpy(&numa, index, sizeof(int));
+      index += sizeof(int);
+
       // discard key's type
       index += sizeof(int);
 
@@ -55,6 +63,10 @@ KVPairLoader::load(int reducerId) {
       memcpy(&numPair, index, sizeof(int));
       index += sizeof(int);
 
+      if (size == 0) {
+        continue; // skip empty data chunks.
+      }
+      isLocalDataChunk.emplace_back(numa == currentNumaNode);
       dataChunkPtrs.emplace_back(rid, roffset);
       numPairs.emplace_back(numPair);
     }
@@ -88,9 +100,14 @@ KVPairLoader::load(int reducerId) {
         index += serValueSize;
 
         dataChunks[i].second.emplace_back(serKey, serKeySize, serValue, serValueSize, reducerId);
+
+        uint64_t sizeChunk {sizeof(int)*2 + serKeySize + serValueSize};
+        isLocalDataChunk[i] ? incBytesRead(sizeChunk) : incRemoteBytesRead(sizeChunk);
       }
     }
     numKVPairs += dataChunks[i].second.size();
+
+    isLocalDataChunk[i] ? incChunksRead(1) : incRemoteChunksRead(1);
   }
 
   return numKVPairs;

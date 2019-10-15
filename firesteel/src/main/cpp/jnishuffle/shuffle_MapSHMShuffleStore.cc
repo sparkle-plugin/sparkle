@@ -645,6 +645,10 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsor
             env->SetLongField(mStatus, fidOffset, mapStatus->getOffsetOfIndexBucket());
           }
           {
+            jfieldID fidWrittenTime {env->GetFieldID(retClazz, "dataChunkWrittenTimeNs", "J")};
+            env->SetLongField(mStatus, fidWrittenTime, mapStatus->getWrittenTimeNs());
+          }
+          {
             unique_ptr<jlong[]> tmp(new jlong[totalNumberOfPartitions]);
             vector<int>& sizes = mapStatus->getBucketSizes();
             for (int i=0; i<totalNumberOfPartitions; ++i) {

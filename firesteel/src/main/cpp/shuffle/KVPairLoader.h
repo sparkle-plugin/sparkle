@@ -44,17 +44,58 @@ public:
     throw new domain_error("not valid here.");
   }
 
+  inline uint64_t getTotalNumKVPairs() {
+    return size;
+  }
+
+  inline uint64_t getDataChunkBytesRead() {
+    return bytesRead;
+  }
+
+  inline uint64_t getDataChunksRead() {
+    return numChunksRead;
+  }
+
+  inline uint64_t getRemoteDataChunkBytesRead() {
+    return remoteBytesRead;
+  }
+
+  inline uint64_t getRemoteDataChunksRead() {
+    return numRemoteChunksRead;
+  }
+
 protected:
   const int reducerId;
   vector<pair<region_id, offset>>& chunkPtrs; //index chunk pointers.
   vector<pair<chunk_id, chunk>> dataChunks;
-  uint64_t size {0};
+  uint64_t size {0}; // # of kv pairs in whole chunks.
   byte* dropUntil(int partitionId, byte* indexChunkPtr);
 private:
+  uint64_t bytesRead {0}; // the size of the whole local data chunks read.
+  uint64_t numChunksRead {0}; // # of the local data chunks read.
+  uint64_t remoteBytesRead {0}; // the size of the whole remote data chunks read.
+  uint64_t numRemoteChunksRead {0}; // # of the remote data chunks read.
+
   /**
    * load the whole chunks in memory as kv pairs.
    */
   size_t load(int reducerId);
+
+  inline void incBytesRead(uint64_t bytes) {
+    bytesRead += bytes;
+  }
+
+  inline void incChunksRead(uint64_t numChunks) {
+    numChunksRead += numChunks;
+  }
+
+  inline void incRemoteBytesRead(uint64_t bytes) {
+    remoteBytesRead += bytes;
+  }
+
+  inline void incRemoteChunksRead(uint64_t numChunks) {
+    numRemoteChunksRead += numChunks;
+  }
 };
 
 class PassThroughLoader : public KVPairLoader {

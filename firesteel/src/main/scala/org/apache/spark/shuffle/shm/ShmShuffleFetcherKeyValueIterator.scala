@@ -44,7 +44,7 @@ import java.lang.{String => JString}
  *
  */
 private[spark] class ShmShuffleFetcherKeyValueIterator
-(contenxt: TaskContext,
+(context: TaskContext,
  statuses: Seq[(BlockId, Long, Long, Long, Boolean)],
  reduceShuffleStore: ReduceSHMShuffleStore)
   extends Iterator[(Any, Any)] with Logging {
@@ -76,6 +76,9 @@ private[spark] class ShmShuffleFetcherKeyValueIterator
   private val bakvalues = new ArrayList[Array[Byte]]()
   private val okvalues = new ArrayList[Object]()
 
+  private val shuffleMetrics =
+    context.taskMetrics().createTempShuffleReadMetrics()
+
   initialize()
 
   private [this] def initialize(): Unit= {
@@ -97,7 +100,7 @@ private[spark] class ShmShuffleFetcherKeyValueIterator
 
     //start the sort-merge
     val reduceStatus = new ReduceStatus(mapIds.toArray, shmRegionIds.toArray,
-      offsetToIndexChunks.toArray, sizes.toArray)
+      offsetToIndexChunks.toArray, sizes.toArray, 0L, 0L, 0L, 0L, 0L)
 
     if (isPrimitive) {
       reduceShuffleStore.mergeSort(reduceStatus)
@@ -111,6 +114,13 @@ private[spark] class ShmShuffleFetcherKeyValueIterator
       // so that I decided to make the object shuffle store and its factory.
       kvalueTypeId = ShuffleDataModel.KValueTypeId.Object
       reduceShuffleStore.createShuffleStore(reduceStatus)
+
+      // update stats.
+      shuffleMetrics.incLocalBlocksFetched(reduceStatus.getNumDataChunks)
+      shuffleMetrics.incLocalBytesRead(reduceStatus.getBytesDataChunks)
+      shuffleMetrics.incRemoteBlocksFetched(reduceStatus.getNumRemoteDataChunks)
+      shuffleMetrics.incRemoteBytesRead(reduceStatus.getBytesRemoteDataChunks)
+      shuffleMetrics.incRecordsRead(reduceStatus.getNumRecords)
     }
 
     fetchRound=0

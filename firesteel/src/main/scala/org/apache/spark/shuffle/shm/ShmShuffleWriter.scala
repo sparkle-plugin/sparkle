@@ -45,6 +45,8 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
   private var stopping = false
   private var mapStatus: MapStatus= null
 
+  private val writeMetrics = context.taskMetrics().shuffleWriteMetrics
+
   private val dep = handle.dependency
   private val numOutputSplits = dep.partitioner.numPartitions
 
@@ -173,6 +175,7 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
   override def write (records: Iterator[Product2[K,V]]): Unit = {
     var kv: Product2[K, V] = null
     val bit = records.buffered
+    var totalRecordCount: Long = 0L
 
     //to handle the case where the partition has zero size.
     if (bit.hasNext) {
@@ -193,6 +196,8 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
         count = count + 1
         if (count == SHUFFLE_STORE_BATCH_SERIALIZATION_SIZE) {
           mapShuffleStore.storeKVPairs(count, kvalueTypeId.getState())
+
+          totalRecordCount += count
           count = 0 //reset
         }
       }
@@ -200,6 +205,7 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
       if (count > 0) {
         //some lefover
         mapShuffleStore.storeKVPairs(count, kvalueTypeId.getState())
+        totalRecordCount += count
       }
     }
     else {
@@ -212,6 +218,7 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
 
     //when done, issue sort and store and get the map status information
     val mapStatusResult = mapShuffleStore.sortAndStore()
+    writeMetrics.incWriteTime(mapStatusResult.getWrittenTimeNs)
 
     logInfo( "store id" + mapShuffleStore.getStoreId
          + " shm-shuffle map status region id: " + mapStatusResult.getRegionIdOfIndexBucket())
@@ -221,6 +228,8 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
     val blockManagerId = blockManager.shuffleServerId
 
     val partitionLengths= mapStatusResult.getMapStatus ()
+    writeMetrics.incBytesWritten(partitionLengths.sum)
+    writeMetrics.incRecordsWritten(totalRecordCount)
     mapStatus = SharedMemoryMapStatus(blockManagerId,
       partitionLengths,
       mapStatusResult.getRegionIdOfIndexBucket,
@@ -257,10 +266,9 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
         //For shm-based shuffle, to shutdown the shuffle store for this map task (basically to
         // clean up the occupied DRAM based resource. but not NVM-based resource, which will be
         // cleaned up during unregister the shuffle.)
+        val startTime = System.nanoTime
         mapShuffleStore.stop();
-
+        writeMetrics.incWriteTime(System.nanoTime - startTime)
       }
-
   }
 }
-

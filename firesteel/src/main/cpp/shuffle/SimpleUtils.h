@@ -29,6 +29,8 @@
 #include <iomanip>
 
 #include <sys/time.h>
+#include <unistd.h>
+#include <sys/syscall.h>
 
 using namespace std;
 
@@ -108,6 +110,24 @@ class ByteArrayUtil {
      }
     
      return ss.str();
+  }
+};
+
+class OsUtil {
+public:
+  /**
+   * get the numa node number which is running the current thread.
+   * On error, -1 is returned.
+   */
+  static int getCurrentNumaNode() {
+    int cpu = 0;
+    int numa = 0;
+
+    if (syscall(SYS_getcpu, &cpu, &numa, NULL) == 0) {
+      return numa;
+    }
+
+    return -1;
   }
 };
 

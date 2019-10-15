@@ -12,6 +12,7 @@
 #include "ShuffleDataSharedMemoryManager.h"
 #include "ShuffleDataSharedMemoryManagerHelper.h"
 #include "MapStatus.h"
+#include "SimpleUtils.h"
 #include "../jnishuffle/JniUtils.h"
 
 using namespace std;
@@ -65,8 +66,13 @@ MapShuffleStoreWithObjKeys::write(JNIEnv* env) {
 
   start = chrono::system_clock::now();
   writeIndexChunk(offsets, stats);
+  end = chrono::system_clock::now();
+  LOG(INFO) << "transfering the index chunk into global0 took " << elapsed_s.count() << "s";
+
+  start = chrono::system_clock::now();
   writeDataChunk(offsets);
   end = chrono::system_clock::now();
+  stats.writtenTimeNs = chrono::duration_cast<chrono::nanoseconds>(end - start).count();
   elapsed_s = end - start;
   LOG(INFO) << "transfering " << kvPairs.size() << " pairs into global0 took " << elapsed_s.count() << "s";
 
@@ -74,6 +80,7 @@ MapShuffleStoreWithObjKeys::write(JNIEnv* env) {
   unique_ptr<MapStatus> mapStatus(
     new MapStatus(stats.indexChunkAddr.first,
                   stats.indexChunkAddr.second, numPartitions, mapId));
+  mapStatus->setWrittenTime(stats.writtenTimeNs);
   for (int i=0; i<(int)stats.bucketSizes.size(); ++i) {
     mapStatus->setBucketSize(i, stats.bucketSizes[i]);
   }
@@ -152,7 +159,8 @@ MapShuffleStoreWithObjKeys::writeIndexChunk(vector<byte*>& dataChunkLocalOffsets
     ShuffleStoreManager::getInstance()->getShuffleDataSharedMemoryManager()};
   RRegion::TPtr<void> global_null_ptr;
   size_t indexChunkSize =
-    sizeof(int) // Key's type.
+    sizeof(int) // NUMA node identifier.
+    + sizeof(int) // Key's type.
     + sizeof(int) // # of buckets(=partitions)
     // # of (regionId, offset, sizeof(bucket), sizeof(numPairs)) for each partition.
     + numPartitions * (sizeof(uint64_t)*2 + sizeof(int)*2);
@@ -164,6 +172,12 @@ MapShuffleStoreWithObjKeys::writeIndexChunk(vector<byte*>& dataChunkLocalOffsets
     = make_pair(indexChunkGlobalPointer.region_id(), indexChunkGlobalPointer.offset());
   idxChunkPtr = mapStatus.indexChunkAddr;
   byte* localOffset = (byte*) indexChunkGlobalPointer.get();
+
+  {
+    int numa {OsUtil::getCurrentNumaNode()};
+    memcpy(localOffset, &numa, sizeof(numa));
+    localOffset += sizeof(numa);
+  }
 
   {
     int keyTypeId {KValueTypeId::Object};

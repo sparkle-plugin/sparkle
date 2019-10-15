@@ -55,6 +55,7 @@ private:
   struct NativeMapStatus {
     pair<uint64_t, uint64_t> indexChunkAddr;
     vector<int> bucketSizes;
+    long writtenTimeNs = 0;
   };
 
   const KValueTypeDefinition kValueTypeDef {KValueTypeId::Object};
