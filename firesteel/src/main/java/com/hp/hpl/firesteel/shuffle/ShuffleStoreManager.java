@@ -64,10 +64,14 @@ public class ShuffleStoreManager {
      */
     private void initNativeLibrary(String libraryName) {
          try {
-             System.loadLibrary(System.mapLibraryName(libraryName));
-             LOG.info(libraryName + " shared library loaded via mapLibraryName");
+             System.loadLibrary(libraryName);
+             LOG.info(libraryName + " shared library loaded via System.loadLibrary");
          }
-         catch (UnsatisfiedLinkError ex){
+         catch (NullPointerException ex) {
+	     LOG.error("libraryName should not be null.");
+	     throw new IllegalArgumentException("initNativeLibrary cannot handle the null argument.");
+         }
+         catch (UnsatisfiedLinkError|SecurityException ex){
              try {
                  NativeLibraryLoader.loadLibraryFromJar("/" + System.mapLibraryName(libraryName));
                  LOG.info(libraryName + " shared library loaded via loadLibraryFromJar");
