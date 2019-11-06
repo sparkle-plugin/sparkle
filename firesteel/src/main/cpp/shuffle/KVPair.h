@@ -17,7 +17,7 @@ using namespace std;
  */
 class MapKVPair {
  public:
-  MapKVPair(const jobject& key, unsigned char* value, int vSize, int partition) :
+  MapKVPair(const jobject& key, shared_ptr<byte[]> value, int vSize, int partition) :
     key(key), value(value), vSize(vSize), partition(partition) {}
   ~MapKVPair() {}
 
@@ -32,7 +32,7 @@ class MapKVPair {
   inline void setSerKeySize(int size) {
     serKeySize = size;
   }
-  inline byte* getSerValue() const {return (byte*) value;}
+  inline byte* getSerValue() const {return value.get();}
   inline int getSerValueSize() const {return vSize;}
 
  private:
@@ -40,7 +40,7 @@ class MapKVPair {
   byte* serKey {nullptr};
   int serKeySize {-1};
 
-  unsigned char* value {nullptr};
+  shared_ptr<byte[]> value {nullptr};
   int vSize {-1};
 
   int partition {-1};
