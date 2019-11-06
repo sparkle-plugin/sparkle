@@ -120,7 +120,7 @@ MapShuffleStoreWithObjKeys::shutdown() {
 
 void
 MapShuffleStoreWithObjKeys::sortPairs(JNIEnv* env) {
-  stable_sort(kvPairs.begin(), kvPairs.end(), shuffle::MapComparator(env));
+  //stable_sort(kvPairs.begin(), kvPairs.end(), shuffle::MapComparator(env));
 }
 
 void
