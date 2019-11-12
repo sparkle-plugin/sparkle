@@ -132,11 +132,15 @@ private:
     EqualTo(JNIEnv* env) : env(env) {}
     ~EqualTo() {}
 
-    bool operator()(const jobject& lhs, const jobject& rhs) const {
-      jclass clazz {env->GetObjectClass(lhs)};
+    bool operator()(const pair<int, jobject>& lhs, const pair<int, jobject>& rhs) const {
+      if (lhs.first != rhs.first) {
+        return false;
+      }
+
+      jclass clazz {env->GetObjectClass(lhs.second)};
       jmethodID equals
         {env->GetMethodID(clazz, "equals", "(Ljava/lang/Object;)Z")};
-      return env->CallBooleanMethod(lhs, equals, rhs);
+      return env->CallBooleanMethod(lhs.second, equals, rhs.second);
     }
 
   private:
@@ -145,22 +149,16 @@ private:
 
   struct Hasher {
   public:
-    Hasher(JNIEnv* env) : env(env) {}
+    Hasher() {}
     ~Hasher() {}
 
-    uint64_t operator()(const jobject& key) const {
-      jclass clazz {env->GetObjectClass(key)};
-      jmethodID hasher
-        {env->GetMethodID(clazz, "hashCode", "()I")};
-      return (uint64_t) env->CallIntMethod(key, hasher);
+    uint64_t operator()(const pair<int, jobject>& key) const {
+      return key.first;
     }
-
-  private:
-    JNIEnv* env {nullptr};
   };
 
-  unique_ptr<unordered_map<jobject, vector<ReduceKVPair>, Hasher, EqualTo>> hashmap;
-  unordered_map<jobject, vector<ReduceKVPair>, Hasher, EqualTo>::iterator hashmapIt;
+  unique_ptr<unordered_map<pair<int, jobject>, vector<ReduceKVPair>, Hasher, EqualTo>> hashmap;
+  unordered_map<pair<int, jobject>, vector<ReduceKVPair>, Hasher, EqualTo>::iterator hashmapIt;
 };
 
 class MergeSortLoader : public KVPairLoader {

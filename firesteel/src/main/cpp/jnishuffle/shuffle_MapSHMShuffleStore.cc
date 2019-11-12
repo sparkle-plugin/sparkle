@@ -173,20 +173,25 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsto
 
 JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nCopyToNativeStore
 (JNIEnv* env, jobject obj, jlong ptrToStore, jobject byteBuffer, jintArray voffsets,
- jobjectArray keys, jintArray partitions, jint numPairs) {
+ jobjectArray keys, jintArray keyHashes, jintArray partitions, jint numPairs) {
   MapShuffleStoreWithObjKeys *shuffleStore =
     reinterpret_cast<MapShuffleStoreWithObjKeys*> (ptrToStore);
   unsigned char *buf = (unsigned char * )env->GetDirectBufferAddress(byteBuffer);
 
   int* par = env->GetIntArrayElements (partitions, NULL);
   int* vo = env->GetIntArrayElements (voffsets, NULL);
+  int* okhashes = env->GetIntArrayElements (keyHashes, NULL);
 
   vector<jobject> keysVec(numPairs);
   for (auto i=0; i<numPairs; ++i) {
     jobject key = env->GetObjectArrayElement(keys, i);
     keysVec[i] = env->NewGlobalRef(key);
   }
-  shuffleStore->storeKVPairs(keysVec, buf, vo, par, numPairs);
+  shuffleStore->storeKVPairs(keysVec, okhashes, buf, vo, par, numPairs);
+
+  env->ReleaseIntArrayElements(partitions, par, 0);
+  env->ReleaseIntArrayElements(voffsets, vo, 0);
+  env->ReleaseIntArrayElements(keyHashes, okhashes, 0);
 }
 
 /*

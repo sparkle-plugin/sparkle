@@ -25,7 +25,7 @@ MapShuffleStoreWithObjKeys(int mapId, bool ordering)
 
 void
 MapShuffleStoreWithObjKeys::storeKVPairs(
-    vector<jobject>& keys, unsigned char *values,
+    vector<jobject>& keys, int *keyHashes, unsigned char *values,
     int* voffsets, int* partitions, int numPairs) {
 
   int voffset = 0;
@@ -34,7 +34,7 @@ MapShuffleStoreWithObjKeys::storeKVPairs(
     shared_ptr<byte[]> serValue(new byte[serValueSize]);
     memcpy(serValue.get(), values+voffset, serValueSize);
 
-    kvPairs.emplace_back(keys[i] , serValue, serValueSize, *(partitions+i));
+    kvPairs.emplace_back(keys[i], *(keyHashes+i), serValue, serValueSize, *(partitions+i));
     voffset += serValueSize;
 
     // update # of partitions.
@@ -200,7 +200,7 @@ MapShuffleStoreWithObjKeys::writeIndexChunk(vector<byte*>& dataChunkLocalOffsets
 
   for (auto& pair : kvPairs) {
     bucketSizes[pair.getPartition()] +=
-      sizeof(int) + pair.getSerKeySize() + pair.getSerValueSize() + sizeof(int);
+      sizeof(int)*2 + pair.getSerKeySize() + sizeof(int) + pair.getSerValueSize();
     numPairs[pair.getPartition()] += 1;
   }
 
@@ -239,12 +239,16 @@ MapShuffleStoreWithObjKeys::writeIndexChunk(vector<byte*>& dataChunkLocalOffsets
 void
 MapShuffleStoreWithObjKeys::writeDataChunk(vector<byte*>& localOffsets) {
   /*
-   * [(key-size, serKey, value-size, serValue)] for each partition.
+   * [(key-hash, key-size, serKey, value-size, serValue)] for each partition.
    */
   for (auto& pair : kvPairs) {
     byte* localOffset = localOffsets[pair.getPartition()];
 
     {
+      int keyHash = pair.getKeyHash();
+      memcpy(localOffset, &keyHash, sizeof(int));
+      localOffset += sizeof(int);
+
       int keySize = pair.getSerKeySize();
       memcpy(localOffset, &keySize, sizeof(int));
       localOffset += sizeof(int);

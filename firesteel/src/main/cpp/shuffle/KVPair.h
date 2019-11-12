@@ -17,8 +17,8 @@ using namespace std;
  */
 class MapKVPair {
  public:
-  MapKVPair(const jobject& key, shared_ptr<byte[]> value, int vSize, int partition) :
-    key(key), value(value), vSize(vSize), partition(partition) {}
+ MapKVPair(const jobject& key, int khash, shared_ptr<byte[]> value, int vSize, int partition) :
+  key(key), khash(khash), value(value), vSize(vSize), partition(partition) {}
   ~MapKVPair() {}
 
   inline int getPartition() const {return partition;}
@@ -32,11 +32,13 @@ class MapKVPair {
   inline void setSerKeySize(int size) {
     serKeySize = size;
   }
+  inline int getKeyHash() const {return khash;}
   inline byte* getSerValue() const {return value.get();}
   inline int getSerValueSize() const {return vSize;}
 
  private:
   jobject key {nullptr};
+  int khash {-1};
   byte* serKey {nullptr};
   int serKeySize {-1};
 
@@ -48,9 +50,10 @@ class MapKVPair {
 
 class ReduceKVPair {
 public:
-  ReduceKVPair(shared_ptr<byte[]> serKey,int serKeySize, shared_ptr<byte[]> value, int vSize, int partition):
+ ReduceKVPair(shared_ptr<byte[]> serKey,int serKeySize, int keyHash, shared_ptr<byte[]> value, int vSize, int partition):
     serKey(serKey),
     serKeySize(serKeySize),
+    khash(keyHash),
     value(value),
     vSize(vSize), partition(partition) {}
   ~ReduceKVPair() {}
@@ -60,12 +63,14 @@ public:
   inline void setKey(jobject& _key) {key = _key;};
   inline byte* getSerKey() const {return serKey.get();}
   inline int getSerKeySize() const {return serKeySize;}
+  inline int getKeyHash() const {return khash;}
   inline byte* getSerValue() const {return value.get();}
   inline int getSerValueSize() const {return vSize;}
 private:
   jobject key {nullptr};
   shared_ptr<byte[]> serKey {nullptr};
   int serKeySize {-1};
+  int khash {-1};
 
   shared_ptr<byte[]> value {nullptr};
   int vSize {-1};

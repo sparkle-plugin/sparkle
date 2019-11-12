@@ -22,7 +22,7 @@ public:
   MapShuffleStoreWithObjKeys(int mapId, bool ordering);
   ~MapShuffleStoreWithObjKeys() {};
 
-  void storeKVPairs (vector<jobject>& keys, unsigned char *values,
+  void storeKVPairs (vector<jobject>& keys, int *keyHashes, unsigned char *values,
     int* voffsets, int* partitions, int numPairs);
 
   /**

@@ -187,6 +187,7 @@ public class MapSHMShuffleStore implements MapShuffleStore {
     private long  lkvalues[]  = null; 
     private String skvalues[] = null; 
     private Object okvalues[] = null;
+    private int okhashes[] = null;
     //for string length
     private int slkvalues[]=null; 
     
@@ -245,6 +246,7 @@ public class MapSHMShuffleStore implements MapShuffleStore {
          }
          else if (keyType == ShuffleDataModel.KValueTypeId.Object){
              this.okvalues = new Object[this.sizeOfBatchSerialization];
+             this.okhashes = new int[this.sizeOfBatchSerialization];
          }
          else {
             throw new UnsupportedOperationException ( "key type: " + keyType + " is not supported");
@@ -368,6 +370,7 @@ public class MapSHMShuffleStore implements MapShuffleStore {
      //for key = object, value = object
      public void serializeVObject (Object kvalue, Object vvalue, int partitionId, int indexPosition) {
         this.okvalues[indexPosition] = kvalue;
+        this.okhashes[indexPosition] = kvalue.hashCode();
         this.npartitions[indexPosition] = partitionId;
         this.serializer.writeObject(vvalue);
         ByteBuffer currentVBuf = this.serializer.getByteBuffer();
@@ -446,13 +449,13 @@ public class MapSHMShuffleStore implements MapShuffleStore {
 
         ByteBuffer holder = this.serializer.getByteBuffer();
         nCopyToNativeStore(this.pointerToStore, holder, this.voffsets,
-                           this.okvalues, this.npartitions, numPairs);
+                           this.okvalues, this.okhashes, this.npartitions, numPairs);
 
         this.serializer.init();
     }
 
     private native void nCopyToNativeStore (long ptrToStore, ByteBuffer holder, int[] voffsets,
-                                             Object[] okvalues, int[] partitions, int numPairs);
+                                            Object[] okvalues, int[] okhashes, int[] partitions, int numPairs);
 
     //Special case: to store the (K,V) pairs that have the K values to be with type of Integer
     public void storeKVPairsWithIntKeys (int numberOfPairs) {

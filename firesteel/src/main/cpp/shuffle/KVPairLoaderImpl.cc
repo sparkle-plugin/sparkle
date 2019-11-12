@@ -81,8 +81,12 @@ KVPairLoader::load(int reducerId) {
     dataChunks.emplace_back(i, chunk());
     dataChunks[i].second.reserve(numPairs[i]);
     for (int j=0; j<numPairs[i]; ++j) {
-      // [serKeySize, serKey, serValueSize, serValue]
+      // [keyHash, serKeySize, serKey, serValueSize, serValue]
       {
+        int keyHash;
+        memcpy(&keyHash, index, sizeof(int));
+        index += sizeof(int);
+
         int serKeySize;
         memcpy(&serKeySize, index, sizeof(int));
         index += sizeof(int);
@@ -99,9 +103,10 @@ KVPairLoader::load(int reducerId) {
         memcpy(serValue.get(), index, serValueSize);
         index += serValueSize;
 
-        dataChunks[i].second.emplace_back(serKey, serKeySize, serValue, serValueSize, reducerId);
+        dataChunks[i].second.emplace_back(serKey, serKeySize, keyHash,
+                                          serValue, serValueSize, reducerId);
 
-        uint64_t sizeChunk {sizeof(int)*2 + serKeySize + serValueSize};
+        uint64_t sizeChunk {sizeof(int)*3 + serKeySize + serValueSize};
         isLocalDataChunk[i] ? incBytesRead(sizeChunk) : incRemoteBytesRead(sizeChunk);
       }
     }
@@ -178,12 +183,13 @@ void
 HashMapLoader::aggregate(JNIEnv* env) {
   // group by keys.
   hashmap =
-    make_unique<unordered_map<jobject, vector<ReduceKVPair>, Hasher, EqualTo>>(0, Hasher(env), EqualTo(env));
+    make_unique<unordered_map<pair<int, jobject>, vector<ReduceKVPair>, Hasher, EqualTo>>(0, Hasher(), EqualTo(env));
   for (auto&& [idx, dataChunk] : dataChunks) {
     for (auto& pair : dataChunk) {
-      auto it {hashmap->find(pair.getKey())};
+      auto hashKey = make_pair(pair.getKeyHash(), pair.getKey());
+      auto it {hashmap->find(hashKey)};
       if (it == hashmap->end()) {
-	 hashmap->emplace(pair.getKey(), vector<ReduceKVPair>{pair});
+        hashmap->emplace(hashKey, vector<ReduceKVPair>{pair});
         continue;
       }
 
