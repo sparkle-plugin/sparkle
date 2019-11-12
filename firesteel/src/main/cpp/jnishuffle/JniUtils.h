@@ -3,6 +3,7 @@
 
 #include <jni.h>
 #include <vector>
+#include <glog/logging.h>
 #include "../shuffle/KVPair.h"
 
 namespace shuffle {
@@ -21,12 +22,19 @@ namespace shuffle {
     jobject kryo {env->CallStaticObjectMethod(serClazz, factoryMid, kPoolSize, kryoInitiator)};
 
     jmethodID deserMid {env->GetMethodID(serClazz, "fromBytes", "([B)Ljava/lang/Object;")};
+    int sizeJbyteArray = 16;
+    jbyteArray keyJbyteArray = env->NewByteArray(sizeJbyteArray);
     for (auto& pair : pairs) {
-      jbyteArray keyJbyteArray = env->NewByteArray(pair.getSerKeySize());
+      if (pair.getSerKeySize() > sizeJbyteArray) {
+        // resize jbyteArrray.
+        sizeJbyteArray = pair.getSerKeySize() * 2;
+        keyJbyteArray = env->NewByteArray(sizeJbyteArray);
+        LOG(INFO) << "resize jbyteArray for deserializing the key:" << sizeJbyteArray;
+      }
       env->SetByteArrayRegion(keyJbyteArray, 0, pair.getSerKeySize(), (jbyte*) pair.getSerKey());
 
       jobject key =
-	(jobject) env->NewGlobalRef(env->CallObjectMethod(kryo, deserMid, keyJbyteArray));
+        (jobject) env->NewGlobalRef(env->CallObjectMethod(kryo, deserMid, keyJbyteArray));
       pair.setKey(key);
     }
   }
