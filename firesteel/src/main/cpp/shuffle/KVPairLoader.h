@@ -16,7 +16,6 @@ using namespace std;
 
 typedef uint64_t region_id;
 typedef uint64_t offset;
-typedef uint64_t chunk_id;
 typedef vector<ReduceKVPair> chunk;
 
 class KVPairLoader {
@@ -67,7 +66,7 @@ public:
 protected:
   const int reducerId;
   vector<pair<region_id, offset>>& chunkPtrs; //index chunk pointers.
-  vector<pair<chunk_id, chunk>> dataChunks;
+  chunk mergedChunk;
   uint64_t size {0}; // # of kv pairs in whole chunks.
   byte* dropUntil(int partitionId, byte* indexChunkPtr);
 private:
@@ -102,17 +101,16 @@ class PassThroughLoader : public KVPairLoader {
 public:
   PassThroughLoader(int _reducerId, vector<pair<region_id, offset>>& _chunkPtrs)
     : KVPairLoader(_reducerId, _chunkPtrs) {
-    flatChunk.reserve(size);
-    itFlatChunk = flatChunk.begin();
+    itFlatChunk = mergedChunk.begin();
+    curSize = size;
   }
   ~PassThroughLoader() {}
 
   void prepare(JNIEnv* env) override;
   vector<ReduceKVPair> fetch(int num) override;
 private:
-  vector<ReduceKVPair> flatChunk;
-  vector<ReduceKVPair>::iterator itFlatChunk;
-  void flatten();
+  chunk::iterator itFlatChunk;
+  size_t curSize;
 };
 
 class HashMapLoader : public KVPairLoader {
@@ -165,8 +163,7 @@ class MergeSortLoader : public KVPairLoader {
 public:
   MergeSortLoader(int _reducerId, vector<pair<region_id, offset>>& _chunkPtrs)
     : KVPairLoader(_reducerId, _chunkPtrs) {
-    orderedChunk.reserve(size);
-    itOrderedChunk = orderedChunk.begin();
+    curSize = size;
   }
   ~MergeSortLoader() {}
 
@@ -174,7 +171,7 @@ public:
   vector<ReduceKVPair> fetch(int num) override;
 private:
   void order(JNIEnv* env);
-  vector<ReduceKVPair> orderedChunk;
-  vector<ReduceKVPair>::iterator itOrderedChunk;
+  chunk::iterator itOrderedChunk;
+  size_t curSize;
 };
 #endif

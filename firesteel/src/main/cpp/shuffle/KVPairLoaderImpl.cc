@@ -23,6 +23,7 @@ KVPairLoader::load(int reducerId) {
   vector<int> numPairs;
   vector<bool> isLocalDataChunk;
   int currentNumaNode {OsUtil::getCurrentNumaNode()};
+  size_t numLoadedPairs {0};
   for (auto& chunkPtr : chunkPtrs) {
     RRegion::TPtr<void> idxChunkPtr(chunkPtr.first, chunkPtr.second);
     byte* index = (byte*)idxChunkPtr.get();
@@ -69,17 +70,16 @@ KVPairLoader::load(int reducerId) {
       isLocalDataChunk.emplace_back(numa == currentNumaNode);
       dataChunkPtrs.emplace_back(rid, roffset);
       numPairs.emplace_back(numPair);
+      numLoadedPairs += numPair;
     }
   }
 
   // decode data chunks.
-  size_t numKVPairs {0};
+  mergedChunk.reserve(numLoadedPairs);
   for (size_t i=0; i<dataChunkPtrs.size(); ++i) {
     RRegion::TPtr<void> dataChunkPtr(dataChunkPtrs[i].first, dataChunkPtrs[i].second);
     byte* index = (byte*) dataChunkPtr.get();
 
-    dataChunks.emplace_back(i, chunk());
-    dataChunks[i].second.reserve(numPairs[i]);
     for (int j=0; j<numPairs[i]; ++j) {
       // [keyHash, serKeySize, serKey, serValueSize, serValue]
       {
@@ -103,19 +103,18 @@ KVPairLoader::load(int reducerId) {
         memcpy(serValue, index, serValueSize);
         index += serValueSize;
 
-        dataChunks[i].second.emplace_back(serKey, serKeySize, keyHash,
-                                          serValue, serValueSize, reducerId);
+        mergedChunk.emplace_back(serKey, serKeySize, keyHash,
+                                 serValue, serValueSize, reducerId);
 
         uint64_t sizeChunk {sizeof(int)*3 + serKeySize + serValueSize};
         isLocalDataChunk[i] ? incBytesRead(sizeChunk) : incRemoteBytesRead(sizeChunk);
       }
     }
-    numKVPairs += dataChunks[i].second.size();
 
     isLocalDataChunk[i] ? incChunksRead(1) : incRemoteChunksRead(1);
   }
 
-  return numKVPairs;
+  return mergedChunk.size();
 }
 
 byte*
@@ -128,23 +127,17 @@ KVPairLoader::dropUntil(int partitionId, byte* index) {
 }
 
 void
-PassThroughLoader::prepare(JNIEnv* env) {
-  // flatten data chunks.
-  auto start = chrono::system_clock::now();
-  flatten();
-  auto end = chrono::system_clock::now();
-  chrono::duration<double> elapsed_s = end - start;
-  LOG(INFO) << "flatten " << size << " pairs took " << elapsed_s.count() << "s";
-}
+PassThroughLoader::prepare(JNIEnv* env) {}
 
 vector<ReduceKVPair>
 PassThroughLoader::fetch(int num) {
   auto start = chrono::system_clock::now();
 
   auto beginIt = itFlatChunk;
-  auto endIt = beginIt + min(num, static_cast<int>(distance(beginIt, flatChunk.end())));
+  auto endIt = num <= (int)curSize ? beginIt + num : mergedChunk.end();
   auto res = vector<ReduceKVPair>(beginIt, endIt);
   itFlatChunk = endIt;
+  curSize -= num;
 
   auto end = chrono::system_clock::now();
   chrono::duration<double> elapsed_s = end - start;
@@ -154,20 +147,9 @@ PassThroughLoader::fetch(int num) {
 }
 
 void
-PassThroughLoader::flatten() {
-  for (auto&& [chunk_id, chunk] : dataChunks) {
-    flatChunk.insert(flatChunk.end(),
-                     make_move_iterator(chunk.begin()),
-                     make_move_iterator(chunk.end()));
-  }
-}
-
-void
 HashMapLoader::prepare(JNIEnv* env) {
   auto start = chrono::system_clock::now();
-  for (auto&& [idx, dataChunk] : dataChunks) {
-    shuffle::deserializeKeys(env, dataChunk);
-  }
+  shuffle::deserializeKeys(env, mergedChunk);
   auto end = chrono::system_clock::now();
   chrono::duration<double> elapsed_s = end - start;
   LOG(INFO) << "deserializing " << size << " pairs from chunks took " << elapsed_s.count() << "s";
@@ -184,18 +166,16 @@ HashMapLoader::aggregate(JNIEnv* env) {
   // group by keys.
   hashmap =
     make_unique<unordered_map<pair<int, jobject>, vector<ReduceKVPair>, Hasher, EqualTo>>(0, Hasher(), EqualTo(env));
-  for (auto&& [idx, dataChunk] : dataChunks) {
-    for (auto& pair : dataChunk) {
-      auto hashKey = make_pair(pair.getKeyHash(), pair.getKey());
-      auto it {hashmap->find(hashKey)};
-      if (it == hashmap->end()) {
-        hashmap->emplace(hashKey, vector<ReduceKVPair>{pair});
-        continue;
-      }
-
-      auto& pairs {it->second};
-      pairs.emplace_back(move(pair));
+  for (auto& pair : mergedChunk) {
+    auto hashKey = make_pair(pair.getKeyHash(), pair.getKey());
+    auto it {hashmap->find(hashKey)};
+    if (it == hashmap->end()) {
+      hashmap->emplace(hashKey, vector<ReduceKVPair>{pair});
+      continue;
     }
+
+    auto& pairs {it->second};
+    pairs.emplace_back(move(pair));
   }
 
   hashmapIt = hashmap->begin();
@@ -227,15 +207,14 @@ HashMapLoader::fetchAggregatedPairs(int num) {
 void
 MergeSortLoader::prepare(JNIEnv* env) {
   auto start = chrono::system_clock::now();
-  for (auto&& [idx, dataChunk] : dataChunks) {
-    shuffle::deserializeKeys(env, dataChunk);
-  }
+  shuffle::deserializeKeys(env, mergedChunk);
   auto end = chrono::system_clock::now();
   chrono::duration<double> elapsed_s = end - start;
   LOG(INFO) << "desrializing " << size << " pairs from chunks took " << elapsed_s.count() << "s";
 
   start = chrono::system_clock::now();
   order(env);
+  itOrderedChunk = mergedChunk.begin();
   end = chrono::system_clock::now();
   elapsed_s = end - start;
   LOG(INFO) << "ordering " << size << " pairs from chunks took " << elapsed_s.count() << "s";
@@ -246,10 +225,11 @@ MergeSortLoader::fetch(int num) {
   auto start = chrono::system_clock::now();
 
   auto beginIt = itOrderedChunk;
-  auto endIt = beginIt + min(num,
-                             static_cast<int>(distance(beginIt, orderedChunk.end())));
+  auto endIt = num <= (int)curSize ? beginIt + num : mergedChunk.end();
+
   auto res = vector<ReduceKVPair>(beginIt, endIt);
   itOrderedChunk = endIt;
+  curSize -= num;
 
   auto end = chrono::system_clock::now();
   chrono::duration<double> elapsed_s = end - start;
@@ -260,11 +240,5 @@ MergeSortLoader::fetch(int num) {
 
 void
 MergeSortLoader::order(JNIEnv* env) {
-  for (auto&& [chunk_id, chunk] : dataChunks) {
-    orderedChunk.insert(orderedChunk.end(),
-                        make_move_iterator(chunk.begin()),
-                        make_move_iterator(chunk.end()));
-  }
-
-  stable_sort(orderedChunk.begin(), orderedChunk.end(), shuffle::ReduceComparator(env));
+  stable_sort(mergedChunk.begin(), mergedChunk.end(), shuffle::ReduceComparator(env));
 }
