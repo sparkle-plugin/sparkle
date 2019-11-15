@@ -20,7 +20,7 @@ using namespace std;
 MapShuffleStoreWithObjKeys::
 MapShuffleStoreWithObjKeys(int mapId, bool ordering)
   : mapId(mapId), doOrdering(ordering) {
-  kvPairs.reserve(1 * 1024 * 1024);
+  kvPairs.reserve(2 * 1024 * 1024);
 }
 
 void
