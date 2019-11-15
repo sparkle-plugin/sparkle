@@ -17,9 +17,13 @@ using namespace std;
  */
 class MapKVPair {
  public:
- MapKVPair(const jobject& key, int khash, shared_ptr<byte[]> value, int vSize, int partition) :
+ MapKVPair(const jobject& key, int khash, byte* value, int vSize, int partition) :
   key(key), khash(khash), value(value), vSize(vSize), partition(partition) {}
-  ~MapKVPair() {}
+  ~MapKVPair() {
+    if (value != nullptr) {
+      delete [] value;
+    }
+  }
 
   inline int getPartition() const {return partition;}
   inline jobject getKey() const {return key;}
@@ -33,7 +37,7 @@ class MapKVPair {
     serKeySize = size;
   }
   inline int getKeyHash() const {return khash;}
-  inline byte* getSerValue() const {return value.get();}
+  inline byte* getSerValue() const {return value;}
   inline int getSerValueSize() const {return vSize;}
 
  private:
@@ -42,7 +46,7 @@ class MapKVPair {
   byte* serKey {nullptr};
   int serKeySize {-1};
 
-  shared_ptr<byte[]> value {nullptr};
+  byte* value {nullptr};
   int vSize {-1};
 
   int partition {-1};
@@ -50,29 +54,36 @@ class MapKVPair {
 
 class ReduceKVPair {
 public:
- ReduceKVPair(shared_ptr<byte[]> serKey,int serKeySize, int keyHash, shared_ptr<byte[]> value, int vSize, int partition):
+ ReduceKVPair(byte* serKey,int serKeySize, int keyHash, byte* value, int vSize, int partition):
     serKey(serKey),
     serKeySize(serKeySize),
     khash(keyHash),
     value(value),
     vSize(vSize), partition(partition) {}
-  ~ReduceKVPair() {}
+  ~ReduceKVPair() {
+    if (serKey != nullptr) {
+      delete [] serKey;
+    }
+    if (value != nullptr) {
+      delete [] value;
+    }
+  }
 
   inline int getPartition() const {return partition;}
   inline jobject getKey() const {return key;}
   inline void setKey(jobject& _key) {key = _key;};
-  inline byte* getSerKey() const {return serKey.get();}
+  inline byte* getSerKey() const {return serKey;}
   inline int getSerKeySize() const {return serKeySize;}
   inline int getKeyHash() const {return khash;}
-  inline byte* getSerValue() const {return value.get();}
+  inline byte* getSerValue() const {return value;}
   inline int getSerValueSize() const {return vSize;}
 private:
   jobject key {nullptr};
-  shared_ptr<byte[]> serKey {nullptr};
+  byte* serKey {nullptr};
   int serKeySize {-1};
   int khash {-1};
 
-  shared_ptr<byte[]> value {nullptr};
+  byte* value {nullptr};
   int vSize {-1};
 
   int partition {-1};

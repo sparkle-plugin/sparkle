@@ -31,8 +31,8 @@ MapShuffleStoreWithObjKeys::storeKVPairs(
   int voffset = 0;
   for (int i=0; i<numPairs; ++i) {
     int serValueSize {*(voffsets+i) - voffset};
-    shared_ptr<byte[]> serValue(new byte[serValueSize]);
-    memcpy(serValue.get(), values+voffset, serValueSize);
+    byte* serValue {new byte[serValueSize]};
+    memcpy(serValue, values+voffset, serValueSize);
 
     kvPairs.emplace_back(keys[i], *(keyHashes+i), serValue, serValueSize, *(partitions+i));
     voffset += serValueSize;

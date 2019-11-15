@@ -91,16 +91,16 @@ KVPairLoader::load(int reducerId) {
         memcpy(&serKeySize, index, sizeof(int));
         index += sizeof(int);
 
-        shared_ptr<byte[]> serKey(new byte[serKeySize]);
-        memcpy(serKey.get(), index, serKeySize);
+        byte* serKey {new byte[serKeySize]};
+        memcpy(serKey, index, serKeySize);
         index += serKeySize;
 
         int serValueSize;
         memcpy(&serValueSize, index, sizeof(int));
         index += sizeof(int);
 
-        shared_ptr<byte[]> serValue(new byte[serValueSize]);
-        memcpy(serValue.get(), index, serValueSize);
+        byte* serValue {new byte[serValueSize]};
+        memcpy(serValue, index, serValueSize);
         index += serValueSize;
 
         dataChunks[i].second.emplace_back(serKey, serKeySize, keyHash,
