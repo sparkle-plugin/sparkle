@@ -20,9 +20,7 @@ class MapKVPair {
  MapKVPair(const jobject& key, int khash, byte* value, int vSize, int partition) :
   key(key), khash(khash), value(value), vSize(vSize), partition(partition) {}
   ~MapKVPair() {
-    if (value != nullptr) {
-      delete [] value;
-    }
+    delete [] value;
   }
 
   inline int getPartition() const {return partition;}
@@ -55,18 +53,62 @@ class MapKVPair {
 class ReduceKVPair {
 public:
  ReduceKVPair(byte* serKey,int serKeySize, int keyHash, byte* value, int vSize, int partition):
-    serKey(serKey),
+  serKey(serKey),
     serKeySize(serKeySize),
     khash(keyHash),
     value(value),
     vSize(vSize), partition(partition) {}
+  ReduceKVPair(const ReduceKVPair& pair) :
+  key(pair.key),
+    serKeySize(pair.serKeySize),
+    khash(pair.khash),
+    vSize(pair.vSize),
+    partition(pair.partition) {
+    serKey = new byte[serKeySize];
+    memcpy(serKey, pair.serKey, serKeySize);
+
+    value = new byte[vSize];
+    memcpy(value, pair.value, vSize);
+    }
+ ReduceKVPair(ReduceKVPair&& pair) noexcept :
+  key(pair.key),
+    serKey(pair.serKey),
+    serKeySize(pair.serKeySize),
+    khash(pair.khash),
+    value(pair.value),
+    vSize(pair.vSize),
+    partition(pair.partition)
+  {
+    pair.serKey = nullptr;
+    pair.value = nullptr;
+  }
   ~ReduceKVPair() {
-    if (serKey != nullptr) {
-      delete [] serKey;
+    delete [] serKey;
+    delete [] value;
+  }
+
+  ReduceKVPair& operator=(ReduceKVPair&& pair) {
+    if (&pair == this) {
+      return *this;
     }
-    if (value != nullptr) {
-      delete [] value;
-    }
+
+    key = pair.key;
+    serKeySize = pair.serKeySize;
+    khash = pair.khash;
+
+    delete [] serKey;
+    serKey = pair.serKey;
+    pair.serKey = nullptr;
+
+    vSize = pair.vSize;
+
+    delete [] value;
+    value = pair.value;
+    pair.value = nullptr;
+
+    partition = pair.partition;
+
+    return *this;
   }
 
   inline int getPartition() const {return partition;}
