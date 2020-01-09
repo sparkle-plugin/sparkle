@@ -91,6 +91,85 @@ MapShuffleStoreWithObjKeys::write(JNIEnv* env) {
   return mapStatus;
 }
 
+unique_ptr<MapStatus>
+MapShuffleStoreWithObjKeys::write(byte* directBuffer,
+                                  int numPartitions, int* lengths) {
+  static_assert(SHMShuffleGlobalConstants::USING_RMB, "RMB should be enabled.");
+  RRegion::TPtr<void> global_null_ptr;
+
+  ShuffleDataSharedMemoryManager *memoryManager {
+    ShuffleStoreManager::getInstance()->getShuffleDataSharedMemoryManager()};
+
+  size_t indexChunkSize =
+    sizeof(int) // NUMA node identifier.
+    + sizeof(int) // # of buckets(=partitions)
+    // # of (regionId, offset, sizeof(bucket)) for each partition.
+    + numPartitions * (sizeof(uint64_t)*2 + sizeof(int));
+
+  RRegion::TPtr<void> indexChunkGlobalPointer
+    = memoryManager->allocate_indexchunk(indexChunkSize);
+  assert(indexChunkGlobalPointer != global_null_ptr);
+
+  NativeMapStatus status;
+  status.indexChunkAddr
+    = make_pair(indexChunkGlobalPointer.region_id(), indexChunkGlobalPointer.offset());
+  idxChunkPtr = status.indexChunkAddr;
+  byte* localOffset = (byte*) indexChunkGlobalPointer.get();
+
+  int numa {OsUtil::getCurrentNumaNode()};
+  memcpy(localOffset, &numa, sizeof(numa));
+  localOffset += sizeof(numa);
+
+  memcpy(localOffset, &numPartitions, sizeof(int));
+  localOffset += sizeof(int);
+
+  // make data chunks, then write shuffle data into the chunk.
+  for (int i=0; i<numPartitions; ++i) {
+    int curBucketSize {*(lengths + i)};
+    // keep BucketSize before hand.
+    status.bucketSizes.emplace_back(curBucketSize);
+
+    RRegion::TPtr<void> chunk
+      = memoryManager->allocate_datachunk(curBucketSize);
+    assert(chunk != global_null_ptr);
+
+    // keep the chunk identifer to free this region on the store shutdown.
+    dataChunkPtrs.emplace_back(chunk.region_id(), chunk.offset());
+
+    uint64_t regionId {chunk.region_id()};
+    memcpy(localOffset, &regionId, sizeof(uint64_t));
+    localOffset += sizeof(uint64_t);
+
+    uint64_t chunkOffset {chunk.offset()};
+    memcpy(localOffset, &chunkOffset, sizeof(uint64_t));
+    localOffset += sizeof(uint64_t);
+
+    memcpy(localOffset, &curBucketSize, sizeof(int));
+    localOffset += sizeof(int);
+
+    // measure written time for Shuffle Metrics.
+    auto start = chrono::system_clock::now();
+    memcpy(chunk.get(), directBuffer, curBucketSize);
+    auto end = chrono::system_clock::now();
+    status.writtenTimeNs =
+      chrono::duration_cast<chrono::nanoseconds>(end - start).count();
+
+    // advance buffer position to the next partition.
+    directBuffer += curBucketSize;
+  }
+
+  // fill MapStatus with corresponding stats.
+  unique_ptr<MapStatus> mapStatus(
+    new MapStatus(status.indexChunkAddr.first,
+                  status.indexChunkAddr.second, numPartitions, mapId));
+  mapStatus->setWrittenTime(status.writtenTimeNs);
+  for (int i=0; i<(int)status.bucketSizes.size(); ++i) {
+    mapStatus->setBucketSize(i, status.bucketSizes[i]);
+  }
+
+  return mapStatus;
+}
+
 void
 MapShuffleStoreWithObjKeys::deleteJobjectKeys(JNIEnv* env) {
   for (auto& pair : kvPairs) {

@@ -117,6 +117,11 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
     //to keep trakc of the aggregation property 
     private boolean aggregation; 
 
+    private boolean enableJniCallback = false;
+    public void setEnableJniCallback(boolean doJniCallback) {
+        this.enableJniCallback = doJniCallback;
+        LOG.info("Jni Callback: " + this.enableJniCallback);
+    }
 
     @Override
     public void initialize (int shuffleId, int reduceId, int numberOfPartitions, boolean ordering, boolean aggregation) {
@@ -160,7 +165,9 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
 	//}
         
         //then return the native resources as well. 
-        nstop(this.pointerToStore);
+        if (this.pointerToStore != 0L) {
+            nstop(this.pointerToStore);
+        }
     }
 
     //shuffle store manager is the creator of map shuffle manager and reduce shuffle manager
@@ -207,11 +214,23 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
                                    this.byteBuffer.capacity(), this.ordering, this.aggregation);
     }
 
+    // NOTE: This method is dedicated to pairs with the Object type key.
+    //       ShuffleStore(Like) contains whole serialized pairs in the DRAM from the GlobalHeap.
+    //       ShuffleStoreLike is stateless store which copys all serialized paris into DirectBuffer.
     public void createShuffleStore(ShuffleDataModel.ReduceStatus statuses) {
         int totalBuckets = statuses.getMapIds().length;
-        this.pointerToStore = ncreateShuffleStore(this.shuffleStoreManager.getPointer(), shuffleId, reduceId,
-                                                  statuses, totalBuckets, this.byteBuffer,
-                                                  this.byteBuffer.capacity(), this.ordering, this.aggregation);
+
+        if (this.enableJniCallback) {
+            this.pointerToStore = ncreateShuffleStore(this.shuffleStoreManager.getPointer(), shuffleId, reduceId,
+                                                      statuses, totalBuckets, this.byteBuffer,
+                                                      this.byteBuffer.capacity(), this.ordering, this.aggregation);
+            return ;
+        }
+
+        this.byteBuffer.rewind();
+        nfromShuffleStoreLike(this.shuffleStoreManager.getPointer(), shuffleId, reduceId,
+                              statuses, totalBuckets, this.byteBuffer, this.byteBuffer.capacity());
+        this.byteBuffer.limit((int)(statuses.getBytesDataChunks() + statuses.getBytesRemoteDataChunks()));
     }
 
     /**
@@ -230,6 +249,11 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
                                             ShuffleDataModel.ReduceStatus statuses,
                                             int totalBuckets, ByteBuffer buffer, int bufferCapacity,
                                             boolean ordering, boolean aggregation);
+
+    // copy whole serialized kv pairs in NV buckets to DirectBuffer.
+    private native long nfromShuffleStoreLike(long ptrToShuffleManager, int shuffleId, int reduceId,
+                                              ShuffleDataModel.ReduceStatus statuses,
+                                              int totalBuckets, ByteBuffer buffer, int bufferCapacity);
 
     /**
      * TODO: we will need to design the shared-memory region data structure, so that we can carry
@@ -375,6 +399,10 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
         Object okvalues[] = new Object[knumbers];
         int pvVOffsets[] = new int[knumbers];
 
+        if (!this.enableJniCallback) {
+            return readDirectBuffer(kvalues, vvalues, knumbers);
+        }
+
         this.deserializer.init();
         int actualKVPairs = nGetSimpleKVPairs(this.pointerToStore, okvalues,
                                               this.deserializer.getByteBuffer(),
@@ -400,6 +428,26 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
         this.deserializer.close();
 
         return actualKVPairs;
+    }
+
+    /**
+     * @param knumbers the max number of pairs to be read.
+     * @return # of pairs read. It would be less than knumber because of the end of buffer.
+     */
+    private int readDirectBuffer(ArrayList<Object> kvalues, ArrayList<Object> vvalues, int knumbers) {
+        ByteBufferInput in = new ByteBufferInput(this.byteBuffer);
+        int numReadPairs = 0;
+        for (int i=0; i<knumbers; ++i) {
+            if (!this.byteBuffer.hasRemaining()) {
+                this.byteBuffer.clear();
+                break;
+            }
+
+            kvalues.set(i, this.kryo.readClassAndObject(in));
+            vvalues.set(i, this.kryo.readClassAndObject(in));
+            numReadPairs++;
+        }
+        return numReadPairs;
     }
 
     private native int nGetSimpleKVPairs(long ptrToStore, Object kvalues[], ByteBuffer

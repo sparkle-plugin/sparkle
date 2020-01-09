@@ -21,14 +21,19 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.scheduler.MapStatus
 import org.apache.spark.shuffle._
 
+import org.apache.spark.util.collection.PartitionedPairBuffer
+
 import org.apache.spark.{SharedMemoryMapStatus, TaskContext, SparkEnv}
 
 import org.apache.spark.serializer.KryoSerializer
 import org.apache.spark.storage.BlockManagerId
 
+import com.esotericsoftware.kryo.io.ByteBufferOutput;
+
 import com.hp.hpl.firesteel.shuffle._
 import com.hp.hpl.firesteel.shuffle.ThreadLocalShuffleResourceHolder._
 
+import java.util.Comparator
 import java.nio.ByteBuffer
 import scala.annotation.switch
 
@@ -61,6 +66,9 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
   //we batch 5000 records before we go to the write.This can be configurable later.
   private val SHUFFLE_STORE_BATCH_SERIALIZATION_SIZE = 2000
   //we will pool the kryo instance and ByteBuffer instance later.
+
+  private val SHUFFLE_STORE_ENABLE_JNI_CALLBACK =
+    SparkEnv.get.conf.getBoolean("spark.shm.enable.jni.callback", false)
 
   //per shuffle task resource
   private val threadLocalShuffleResource = getThreadLocalShuffleResource()
@@ -176,22 +184,36 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
     var kv: Product2[K, V] = null
     val bit = records.buffered
     var totalRecordCount: Long = 0L
+    var buffer = new PartitionedPairBuffer[K, V]
+
+    var useJni = true
 
     //to handle the case where the partition has zero size.
     if (bit.hasNext) {
       val firstKV = bit.head //not advance to the next.
 
       mapShuffleStore = createMapShuffleStore(firstKV._1)
+      // Once the store is created, we can identify the type of keys.
+      if (kvalueTypeId == ShuffleDataModel.KValueTypeId.Object) {
+        useJni = SHUFFLE_STORE_ENABLE_JNI_CALLBACK
+      }
+      mapShuffleStore.setEnableJniCallback(useJni)
 
       var count: Int = 0
       //NOTE: we can not use records for iteration--It will miss the first value.
       val scode=kvalueTypeId.getState()
+
       while (bit.hasNext) {
         kv = bit.next()
         val partitionId = handle.dependency.partitioner.getPartition(kv._1)
 
         //NOTE: we will need to check whether overloading method works in this case.
-        mapShuffleStore.serializeKVPair(kv._1, kv._2, partitionId, count, scode)
+        //NOTE: Obj && no jni callbacks -> just store in buffer.
+        if (useJni) {
+          mapShuffleStore.serializeKVPair(kv._1, kv._2, partitionId, count, scode)
+        } else {
+          buffer.insert(partitionId, kv._1, kv._2)
+        }
 
         count = count + 1
         if (count == SHUFFLE_STORE_BATCH_SERIALIZATION_SIZE) {
@@ -217,7 +239,9 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
     }
 
     //when done, issue sort and store and get the map status information
-    val mapStatusResult = mapShuffleStore.sortAndStore()
+    // Obj && no jni callbacks -> sort, serialize, store
+    val mapStatusResult =
+      if (useJni) mapShuffleStore.sortAndStore() else serializeAndStore(buffer)
     writeMetrics.incWriteTime(mapStatusResult.getWrittenTimeNs)
 
     logInfo( "store id" + mapShuffleStore.getStoreId
@@ -235,6 +259,42 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
       mapStatusResult.getRegionIdOfIndexBucket,
       mapStatusResult.getOffsetOfIndexBucket,
       kvalueTypeId != ShuffleDataModel.KValueTypeId.Object)
+  }
+
+  // Obj && no jni callbacks -> serialize, then store.
+  private def serializeAndStore(buffer:PartitionedPairBuffer[K, V]):
+      ShuffleDataModel.MapStatus = {
+    val resource =
+      threadLocalShuffleResource.getSerializationResource
+
+    val kryo = resource.getKryoInstance
+    val output = new ByteBufferOutput(resource.getByteBuffer)
+
+    // empty the buffer that may contain previous serialized records.
+    output.clear
+
+    val it = buffer.partitionedDestructiveSortedIterator(None).buffered
+    var partitionLengths = new Array[Int](numberOfPartitions)
+    while (it.hasNext) {
+      var cur = it.head
+      val partitionId = cur._1._1
+      var firstPos = output.getByteBuffer.position
+
+      // serialize records of same partitions here.
+      while (it.hasNext && cur._1._1 == partitionId) {
+        cur = it.next
+        kryo.writeClassAndObject(output, cur._1._2)
+        kryo.writeClassAndObject(output, cur._2)
+      }
+
+      partitionLengths(partitionId) = output.getByteBuffer.position - firstPos
+    }
+
+    val res = mapShuffleStore.writeToHeap(output.getByteBuffer, partitionLengths)
+
+    output.clear
+
+    return res
   }
 
   /**

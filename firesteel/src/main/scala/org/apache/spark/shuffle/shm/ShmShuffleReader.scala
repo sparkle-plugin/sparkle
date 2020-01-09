@@ -107,6 +107,8 @@ private[spark] class ShmShuffleReader[K, C](shuffleStoreMgr:ShuffleStoreManager,
     reduceShuffleStore.initialize(shuffleId, reduceId,
                         numReducePartitions, ordering, aggregation)
                         //true to allow sort/merge-sort with ordering.
+    reduceShuffleStore.setEnableJniCallback(
+      SparkEnv.get.conf.getBoolean("spark.shm.enable.jni.callback", false));
 
     val iter =
       ShmShuffleStoreShuffleFetcher.fetch(reduceShuffleStore,shuffleId, reduceId,

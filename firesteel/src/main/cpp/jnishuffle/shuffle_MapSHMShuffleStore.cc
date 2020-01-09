@@ -786,7 +786,48 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsto
 
 }
 
+/*
+ * Class:     com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore
+ * Method:    nwriteToHeap
+ * Signature: (JI[ILjava/nio/ByteBuffer;Lcom/hp/hpl/firesteel/shuffle/ShuffleDataModel/MapStatus;)V
+ */
+JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nwriteToHeap
+(JNIEnv *env, jobject obj, jlong ptrToStore, jint numPartitions, jintArray partitionLengths,
+ jobject holder, jobject mStatus) {
+  MapShuffleStoreWithObjKeys* storePtr
+    = reinterpret_cast<MapShuffleStoreWithObjKeys*>(ptrToStore);
 
+  byte *buff = static_cast<byte*>(env->GetDirectBufferAddress(holder));
+  int *len = env->GetIntArrayElements(partitionLengths, NULL);
+  unique_ptr<MapStatus> mapStatus {storePtr->write(buff, numPartitions, len)};
 
+  env->ReleaseIntArrayElements(partitionLengths, len, 0);
 
+  // update Java-side MapStatus.
+  jclass retClazz = env->GetObjectClass(mStatus);
+  {
+    jfieldID fidRegionId {env->GetFieldID(retClazz, "regionIdOfIndexBucket", "J")};
+    env->SetLongField(mStatus, fidRegionId, mapStatus->getRegionId());
+  }
+  {
+    jfieldID fidOffset {env->GetFieldID(retClazz, "offsetOfIndexBucket", "J")};
+    env->SetLongField(mStatus, fidOffset, mapStatus->getOffsetOfIndexBucket());
+  }
+  {
+    jfieldID fidWrittenTime {env->GetFieldID(retClazz, "dataChunkWrittenTimeNs", "J")};
+    env->SetLongField(mStatus, fidWrittenTime, mapStatus->getWrittenTimeNs());
+  }
+  {
+    unique_ptr<jlong[]> tmp(new jlong[numPartitions]);
+    vector<int>& sizes = mapStatus->getBucketSizes();
+    for (int i=0; i<numPartitions; ++i) {
+      tmp[i] = (sizes.size() == 0) ? 0 : (long)sizes[i];
+    }
 
+    jlongArray bucketSizes {env->NewLongArray(numPartitions)};
+    env->SetLongArrayRegion(bucketSizes, 0, numPartitions, tmp.get());
+
+    jfieldID fidMapStatus {env->GetFieldID(retClazz, "mapStatus", "[J")};
+    env->SetObjectField(mStatus, fidMapStatus, bucketSizes);
+  }
+}

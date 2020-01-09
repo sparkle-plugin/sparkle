@@ -89,6 +89,14 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsor
 
 /*
  * Class:     com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore
+ * Method:    nwriteToHeap
+ * Signature: (JI[ILjava/nio/ByteBuffer;Lcom/hp/hpl/firesteel/shuffle/ShuffleDataModel/MapStatus;)V
+ */
+JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nwriteToHeap
+  (JNIEnv *, jobject, jlong, jint, jintArray, jobject, jobject);
+
+/*
+ * Class:     com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore
  * Method:    nstoreVValueType
  * Signature: (J[BI)V
  */

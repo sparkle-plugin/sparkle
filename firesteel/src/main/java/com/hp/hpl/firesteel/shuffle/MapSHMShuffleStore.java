@@ -193,7 +193,14 @@ public class MapSHMShuffleStore implements MapShuffleStore {
     
     //add key ordering specification for the map/reduce shuffle store
     private boolean ordering; 
-    
+
+    // enable JNI callbacks by the flag.
+    private boolean enableJniCallback = false;
+    public void setEnableJniCallback(boolean doJniCallback) {
+        this.enableJniCallback = doJniCallback;
+        LOG.info("Jni Callback: " + this.enableJniCallback);
+    }
+
     /**
      * to initialize the storage space for a particular shuffle stage's map instance
      * @param shuffleId the current stage id
@@ -431,7 +438,11 @@ public class MapSHMShuffleStore implements MapShuffleStore {
    	    	 storeKVPairsWithByteArrayKeys (numberOfPairs);
    	    	 break;
             case 6:
-                copyToNativeStore(numberOfPairs);
+                // If JNI map/reduce disabled,
+                // we store serialized records later.
+                if (this.enableJniCallback) {
+                    copyToNativeStore(numberOfPairs);
+                }
                 break;
    	    default: 
    	    	throw new RuntimeException ("unknown key type is encountered");
@@ -699,6 +710,22 @@ public class MapSHMShuffleStore implements MapShuffleStore {
      */
     private native void nsortAndStore (long ptrToStore, 
                                        int totalNumberOfPartitions,  ShuffleDataModel.MapStatus mapStatus);
+
+    /**
+     * Write partitioned and sorted records into the GlobalHeap.
+     * The records must to be serialized and contained in DirectBuffer to use in JNI.
+     **/
+    public ShuffleDataModel.MapStatus writeToHeap(ByteBuffer buff, int[] sizes) {
+        ShuffleDataModel.MapStatus status = new ShuffleDataModel.MapStatus();
+        nwriteToHeap(this.pointerToStore, this.numberOfPartitions, sizes, buff, status);
+        return status;
+    }
+
+    private native void nwriteToHeap(long ptrToStore,
+                                     int totalNumberOfPartitions,
+                                     int[] partitionLengths,
+                                     ByteBuffer holder,
+                                     ShuffleDataModel.MapStatus mapStatus);
 
     /**
      * to query what is the K value type used in this shuffle store

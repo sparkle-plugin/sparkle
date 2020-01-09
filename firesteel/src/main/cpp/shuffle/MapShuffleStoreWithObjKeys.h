@@ -30,6 +30,7 @@ public:
    * If need ordering, sort the pairs before write.
    */
   unique_ptr<MapStatus> write(JNIEnv* env);
+  unique_ptr<MapStatus> write(byte* directBuffer, int numPartitions, int* lengths);
   void deleteJobjectKeys(JNIEnv* env);
 
   KValueTypeDefinition getKValueType() override {

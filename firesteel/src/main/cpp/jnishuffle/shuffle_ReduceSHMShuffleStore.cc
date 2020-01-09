@@ -26,6 +26,7 @@
 #include "ReduceShuffleStoreWithLongKeys.h"
 #include "ReduceShuffleStoreWithByteArrayKeys.h"
 #include "ReduceShuffleStoreWithObjKeys.h"
+#include "ReduceShuffleStoreLike.h"
 #include "ExtensibleByteBuffers.h"
 #include "GenericReduceShuffleStore.h"
 #include "JniUtils.h"
@@ -409,6 +410,68 @@ JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_
   return reinterpret_cast<long>(resultStore);
 }
 
+/*
+ * Class:     com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore
+ * Method:    nfromShuffleStoreLike
+ * Signature: (JIILcom/hp/hpl/firesteel/shuffle/ShuffleDataModel/ReduceStatus;ILjava/nio/ByteBuffer;I)J
+ */
+JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_nfromShuffleStoreLike
+(JNIEnv *env, jobject obj, jlong ptrShuffleStoreManager, jint shuffleId, jint reducerId,
+ jobject reduceStatus, jint totalBuckets, jobject byteBuffer, jint bufferCapacity) {
+  ReduceStatus status(reducerId);
+  jclass clazz = env->GetObjectClass(reduceStatus);
+  {
+    jfieldID fidSizes = env->GetFieldID(clazz, "sizes", "[J");
+    long* bucketSizes = env->GetLongArrayElements((jlongArray)env->GetObjectField(reduceStatus, fidSizes), NULL);
+
+    jfieldID fidRegionIds =
+      env->GetFieldID(clazz, "regionIdsOfIndexChunks", "[J");
+    long* regionIds =
+      env->GetLongArrayElements((jlongArray)env->GetObjectField(reduceStatus, fidRegionIds), NULL);
+
+    jfieldID fidOffsets = env->GetFieldID(clazz, "offsetsOfIndexChunks", "[J");
+    long* offsets =
+      env->GetLongArrayElements((jlongArray)env->GetObjectField(reduceStatus, fidOffsets), NULL);
+
+    jfieldID fidMapIds = env->GetFieldID(clazz, "mapIds", "[I");
+    int* mapIds =
+      env->GetIntArrayElements((jintArray)env->GetObjectField(reduceStatus, fidMapIds), NULL);
+
+    for (int i=0; i<totalBuckets; ++i) {
+      MapBucket bucket(reducerId, bucketSizes[i], regionIds[i], offsets[i], mapIds[i]);
+      status.addMapBucket(bucket);
+    }
+  }
+
+  byte *buffer = (byte*) env->GetDirectBufferAddress(byteBuffer);
+
+  unique_ptr<ReduceShuffleStoreLike> resultStore(new ReduceShuffleStoreLike());
+  resultStore->load(buffer, reducerId, status);
+
+  // pass stats to the JVM.
+  {
+    jfieldID fid {env->GetFieldID(clazz, "numDataChunks", "J")};
+    env->SetLongField(reduceStatus, fid, resultStore->getNumDataChunksRead());
+  }
+  {
+    jfieldID fid {env->GetFieldID(clazz, "bytesDataChunks", "J")};
+    env->SetLongField(reduceStatus, fid, resultStore->getBytesDataChunksRead());
+  }
+  {
+    jfieldID fid {env->GetFieldID(clazz, "numRemoteDataChunks", "J")};
+    env->SetLongField(reduceStatus, fid, resultStore->getNumRemoteDataChunksRead());
+  }
+  {
+    jfieldID fid {env->GetFieldID(clazz, "bytesRemoteDataChunks", "J")};
+    env->SetLongField(reduceStatus, fid, resultStore->getBytesRemoteDataChunksRead());
+  }
+  {
+    jfieldID fid {env->GetFieldID(clazz, "numRecords", "J")};
+    env->SetLongField(reduceStatus, fid, resultStore->getNumKVPairsRead());
+  }
+
+  return 0;
+}
 
 /*
  * Class:     com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore
