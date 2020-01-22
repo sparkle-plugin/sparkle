@@ -34,9 +34,10 @@ import com.hp.hpl.firesteel.shuffle.ThreadLocalShuffleResourceHolder._
 import java.util.Comparator
 import java.nio.ByteBuffer
 import scala.annotation.switch
-import scala.collection.mutable.HashMap
+import scala.collection.mutable.Map
+import scala.collection.mutable.OpenHashMap
 import scala.collection.mutable.Buffer
-import scala.collection.mutable.ListBuffer
+import scala.collection.mutable.ArrayBuffer
 
 /**
  * Shuffle writer designed for shared-memory based access.
@@ -185,7 +186,7 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
     var kv: Product2[K, V] = null
     val bit = records.buffered
     var totalRecordCount: Long = 0L
-    var partitionedBuffer = new HashMap[Int, Buffer[(K, V)]]
+    var partitionedBuffer = new OpenHashMap[Int, Buffer[AnyRef]](numberOfPartitions)
 
     var useJni = true
 
@@ -213,8 +214,9 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
         if (useJni) {
           mapShuffleStore.serializeKVPair(kv._1, kv._2, partitionId, count, scode)
         } else {
-          var buffer = partitionedBuffer.getOrElseUpdate(partitionId, new ListBuffer[(K,V)]())
-          buffer.append((kv._1, kv._2))
+          var buffer = partitionedBuffer.getOrElseUpdate(partitionId, new ArrayBuffer[AnyRef]())
+          buffer.append(kv._1.asInstanceOf[AnyRef])
+          buffer.append(kv._2.asInstanceOf[AnyRef])
         }
 
         count = count + 1
@@ -264,10 +266,8 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
   }
 
   // Obj && no jni callbacks -> serialize, then store.
-  private def serializeAndStore(partitionedBuffer:HashMap[Int, Buffer[(K, V)]]):
+  private def serializeAndStore(partitionedBuffer:Map[Int, Buffer[AnyRef]]):
       ShuffleDataModel.MapStatus = {
-    val startTime = System.currentTimeMillis
-
     val resource =
       threadLocalShuffleResource.getSerializationResource
 
@@ -277,29 +277,25 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
     // empty the buffer that may contain previous serialized records.
     output.clear
 
-    logInfo("init time ms: " + (System.currentTimeMillis - startTime))
-
     var partitionLengths = new Array[Int](numberOfPartitions)
     for (id <- partitionedBuffer.keySet.toSeq.sorted) {
       var firstPos = output.getByteBuffer.position
 
       var it = partitionedBuffer(id).iterator
       while (it.hasNext) {
-        var cur = it.next
-        kryo.writeClassAndObject(output, cur._1)
-        kryo.writeClassAndObject(output, cur._2)
+        var key = it.next
+        var value = it.next
+        kryo.writeClassAndObject(output, key)
+        kryo.writeClassAndObject(output, value)
       }
 
       partitionLengths(id) = output.getByteBuffer.position - firstPos
-      logInfo("progress... sort,serialize time ms: " + (System.currentTimeMillis - startTime))
     }
-    logInfo("sort,serialize time ms: " + (System.currentTimeMillis - startTime))
 
     val res = mapShuffleStore.writeToHeap(output.getByteBuffer, partitionLengths)
 
     output.clear
 
-    logInfo("sort,serialize,write time ms: " + (System.currentTimeMillis - startTime))
     return res
   }
 
