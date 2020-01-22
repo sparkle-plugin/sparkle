@@ -21,8 +21,6 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.scheduler.MapStatus
 import org.apache.spark.shuffle._
 
-import org.apache.spark.util.collection.PartitionedPairBuffer
-
 import org.apache.spark.{SharedMemoryMapStatus, TaskContext, SparkEnv}
 
 import org.apache.spark.serializer.KryoSerializer
@@ -36,6 +34,9 @@ import com.hp.hpl.firesteel.shuffle.ThreadLocalShuffleResourceHolder._
 import java.util.Comparator
 import java.nio.ByteBuffer
 import scala.annotation.switch
+import scala.collection.mutable.HashMap
+import scala.collection.mutable.Buffer
+import scala.collection.mutable.ListBuffer
 
 /**
  * Shuffle writer designed for shared-memory based access.
@@ -184,7 +185,7 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
     var kv: Product2[K, V] = null
     val bit = records.buffered
     var totalRecordCount: Long = 0L
-    var buffer = new PartitionedPairBuffer[K, V]
+    var partitionedBuffer = new HashMap[Int, Buffer[(K, V)]]
 
     var useJni = true
 
@@ -212,7 +213,8 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
         if (useJni) {
           mapShuffleStore.serializeKVPair(kv._1, kv._2, partitionId, count, scode)
         } else {
-          buffer.insert(partitionId, kv._1, kv._2)
+          var buffer = partitionedBuffer.getOrElseUpdate(partitionId, new ListBuffer[(K,V)]())
+          buffer.append((kv._1, kv._2))
         }
 
         count = count + 1
@@ -241,7 +243,7 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
     //when done, issue sort and store and get the map status information
     // Obj && no jni callbacks -> sort, serialize, store
     val mapStatusResult =
-      if (useJni) mapShuffleStore.sortAndStore() else serializeAndStore(buffer)
+      if (useJni) mapShuffleStore.sortAndStore() else serializeAndStore(partitionedBuffer)
     writeMetrics.incWriteTime(mapStatusResult.getWrittenTimeNs)
 
     logInfo( "store id" + mapShuffleStore.getStoreId
@@ -262,8 +264,10 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
   }
 
   // Obj && no jni callbacks -> serialize, then store.
-  private def serializeAndStore(buffer:PartitionedPairBuffer[K, V]):
+  private def serializeAndStore(partitionedBuffer:HashMap[Int, Buffer[(K, V)]]):
       ShuffleDataModel.MapStatus = {
+    val startTime = System.currentTimeMillis
+
     val resource =
       threadLocalShuffleResource.getSerializationResource
 
@@ -273,27 +277,29 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
     // empty the buffer that may contain previous serialized records.
     output.clear
 
-    val it = buffer.partitionedDestructiveSortedIterator(None).buffered
+    logInfo("init time ms: " + (System.currentTimeMillis - startTime))
+
     var partitionLengths = new Array[Int](numberOfPartitions)
-    while (it.hasNext) {
-      var cur = it.head
-      val partitionId = cur._1._1
+    for (id <- partitionedBuffer.keySet.toSeq.sorted) {
       var firstPos = output.getByteBuffer.position
 
-      // serialize records of same partitions here.
-      while (it.hasNext && cur._1._1 == partitionId) {
-        cur = it.next
-        kryo.writeClassAndObject(output, cur._1._2)
+      var it = partitionedBuffer(id).iterator
+      while (it.hasNext) {
+        var cur = it.next
+        kryo.writeClassAndObject(output, cur._1)
         kryo.writeClassAndObject(output, cur._2)
       }
 
-      partitionLengths(partitionId) = output.getByteBuffer.position - firstPos
+      partitionLengths(id) = output.getByteBuffer.position - firstPos
+      logInfo("progress... sort,serialize time ms: " + (System.currentTimeMillis - startTime))
     }
+    logInfo("sort,serialize time ms: " + (System.currentTimeMillis - startTime))
 
     val res = mapShuffleStore.writeToHeap(output.getByteBuffer, partitionLengths)
 
     output.clear
 
+    logInfo("sort,serialize,write time ms: " + (System.currentTimeMillis - startTime))
     return res
   }
 
