@@ -25,8 +25,12 @@ import java.nio.ByteBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import scala.Tuple2;
+
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ReduceSHMShuffleStore implements ReduceShuffleStore {
@@ -122,6 +126,14 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
         this.enableJniCallback = doJniCallback;
         LOG.info("Jni Callback: " + this.enableJniCallback);
     }
+    private List<Tuple2<Comparable, Object>> kvPairBuffer = new ArrayList<>();
+    private int numFetchedKvPairs = 0; // from kvPairBuffer
+    private Comparator<Tuple2<Comparable, Object>> comp = new Comparator<Tuple2<Comparable, Object>>() {
+            @Override
+            public int compare(Tuple2<Comparable, Object> p1, Tuple2<Comparable, Object> p2) {
+                return p1._1.compareTo(p2._1);
+            }
+        };
 
     @Override
     public void initialize (int shuffleId, int reduceId, int numberOfPartitions, boolean ordering, boolean aggregation) {
@@ -400,7 +412,10 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
         int pvVOffsets[] = new int[knumbers];
 
         if (!this.enableJniCallback) {
-            return readDirectBuffer(kvalues, vvalues, knumbers);
+            if (!this.ordering) {
+                return readDirectBuffer(kvalues, vvalues, knumbers);
+            }
+            return mergeSortDirectBuffer(kvalues, vvalues, knumbers);
         }
 
         this.deserializer.init();
@@ -447,6 +462,38 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
             vvalues.set(i, this.kryo.readClassAndObject(in));
             numReadPairs++;
         }
+        return numReadPairs;
+    }
+
+    private int mergeSortDirectBuffer(ArrayList<Object> kvalues, ArrayList<Object> vvalues, int knumbers) {
+        // initialize the Reducer.
+        if (this.numFetchedKvPairs == 0) {
+            ByteBufferInput in = new ByteBufferInput(this.byteBuffer);
+            while (this.byteBuffer.hasRemaining()) {
+                this.kvPairBuffer.add(new Tuple2<>((Comparable)this.kryo.readClassAndObject(in),
+                                              this.kryo.readClassAndObject(in)));
+            }
+            kvPairBuffer.sort(comp);
+            this.byteBuffer.clear();
+        }
+
+        int numReadPairs = 0;
+        for (int i=numFetchedKvPairs; i<kvPairBuffer.size(); ++i) {
+            kvalues.set(numReadPairs, kvPairBuffer.get(i)._1);
+            vvalues.set(numReadPairs, kvPairBuffer.get(i)._2);
+            numReadPairs++;
+            numFetchedKvPairs++;
+            if (numReadPairs == knumbers) {
+                break;
+            }
+        }
+
+        // cleanup
+        if (numReadPairs < knumbers) {
+            kvPairBuffer.clear();
+            numFetchedKvPairs = 0;
+        }
+
         return numReadPairs;
     }
 
