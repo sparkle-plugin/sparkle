@@ -29,8 +29,9 @@ import scala.Tuple2;
 
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.Comparator;
-import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ReduceSHMShuffleStore implements ReduceShuffleStore {
@@ -126,14 +127,18 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
         this.enableJniCallback = doJniCallback;
         LOG.info("Jni Callback: " + this.enableJniCallback);
     }
+
+    private int numFetchedKvPairs = 0; // from kvPairBuffer or kvPairMap.
     private List<Tuple2<Comparable, Object>> kvPairBuffer = new ArrayList<>();
-    private int numFetchedKvPairs = 0; // from kvPairBuffer
     private Comparator<Tuple2<Comparable, Object>> comp = new Comparator<Tuple2<Comparable, Object>>() {
             @Override
             public int compare(Tuple2<Comparable, Object> p1, Tuple2<Comparable, Object> p2) {
                 return p1._1.compareTo(p2._1);
             }
         };
+
+    private Map<Object, ArrayList<Object>> kvPairMap = new HashMap<>();
+    private Object[] kvPairMapKeys;
 
     @Override
     public void initialize (int shuffleId, int reduceId, int numberOfPartitions, boolean ordering, boolean aggregation) {
@@ -358,6 +363,10 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
 
     @Override
     public int getKVPairs (ArrayList<Object> kvalues, ArrayList<ArrayList<Object>> vvalues, int knumbers) {
+        if (!this.enableJniCallback) {
+            return hashMapDirectBuffer(kvalues, vvalues, knumbers);
+        }
+
         // prep key holders and value offsets in the direct buffer.
         Object okvalues[] = new Object[knumbers];
         int pvVOffsets[] = new int[knumbers];
@@ -471,7 +480,7 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
             ByteBufferInput in = new ByteBufferInput(this.byteBuffer);
             while (this.byteBuffer.hasRemaining()) {
                 this.kvPairBuffer.add(new Tuple2<>((Comparable)this.kryo.readClassAndObject(in),
-                                              this.kryo.readClassAndObject(in)));
+                                                   this.kryo.readClassAndObject(in)));
             }
             kvPairBuffer.sort(comp);
             this.byteBuffer.clear();
@@ -491,6 +500,40 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
         // cleanup
         if (numReadPairs < knumbers) {
             kvPairBuffer.clear();
+            numFetchedKvPairs = 0;
+        }
+
+        return numReadPairs;
+    }
+
+    private int hashMapDirectBuffer(ArrayList<Object> kvalues, ArrayList<ArrayList<Object>> vvalues, int knumbers) {
+        // initialize the Reducer.
+        if (this.numFetchedKvPairs == 0) {
+            ByteBufferInput in = new ByteBufferInput(this.byteBuffer);
+            while (this.byteBuffer.hasRemaining()) {
+                Object key = this.kryo.readClassAndObject(in);
+                kvPairMap.putIfAbsent(key, new ArrayList<>());
+                kvPairMap.get(key).add(this.kryo.readClassAndObject(in));
+            }
+            this.byteBuffer.clear();
+
+            kvPairMapKeys = kvPairMap.keySet().toArray();
+        }
+
+        int numReadPairs = 0;
+        for (int i=numFetchedKvPairs; i<kvPairMapKeys.length; ++i) {
+            kvalues.set(numReadPairs, kvPairMapKeys[i]);
+            vvalues.set(numReadPairs, kvPairMap.get(kvPairMapKeys[i]));
+            numReadPairs++;
+            numFetchedKvPairs++;
+            if (numReadPairs == knumbers) {
+                break;
+            }
+        }
+
+        // cleanup
+        if (numReadPairs < knumbers) {
+            kvPairMap.clear();
             numFetchedKvPairs = 0;
         }
 
