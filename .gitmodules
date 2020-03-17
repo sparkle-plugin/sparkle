@@ -1,0 +1,3 @@
+[submodule "alps"]
+	path = alps
+	url = git@github.com:sparkle-plugin/alps.git

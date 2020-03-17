@@ -1,9 +1,0 @@
-#!/bin/bash
-
-if [[ ! -v HOLODECK_HOME_DIR ]]; then
-    echo 'HOLODECK_HOME_DIR is not set'
-    exit 
-fi
-
-PYTHONPATH="${HOLODECK_HOME_DIR}:$PYTHONPATH" \
-    python -m "alps" "$@"
