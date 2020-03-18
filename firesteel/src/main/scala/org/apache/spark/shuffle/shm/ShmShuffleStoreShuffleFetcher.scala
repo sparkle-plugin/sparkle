@@ -25,7 +25,8 @@ import org.apache.spark.storage.ShuffleBlockFetcherIterator
 import scala.collection.mutable.HashMap
 import org.apache.spark.storage.{BlockId, BlockManagerId, ShuffleBlockId}
 import scala.collection.mutable.ArrayBuffer
-
+import org.apache.spark.util.Utils
+import org.apache.spark.{MapOutputTracker, MapOutputTrackerMaster}
 
 import com.hp.hpl.firesteel.shuffle.ReduceSHMShuffleStore
 
@@ -45,8 +46,21 @@ private[spark] object ShmShuffleStoreShuffleFetcher extends Logging {
     logInfo("Fetching shm-shuffle outputs for shuffle %d, reduce %d".format(shuffleId, reduceId))
     val startTime = System.currentTimeMillis
     val mapOutputTracker = SparkEnv.get.mapOutputTracker
-    val statuses =
+    val isLocal = Utils.isLocalMaster(SparkEnv.get.conf)
+
+    val statuses = if (!isLocal) {
       SharedMemoryMapOutputTracker.getMapSizesByExecutorId(shuffleId, reduceId, mapOutputTracker)
+    } else {
+      mapOutputTracker.asInstanceOf[MapOutputTrackerMaster].shuffleStatuses.get(shuffleId) match {
+        case Some(shuffleStatus) => {
+          shuffleStatus.withMapStatuses { mapStatuses =>
+            SharedMemoryMapOutputTracker.convertMapStatuses(shuffleId, reduceId, reduceId+1, mapStatuses)
+          }
+        }
+        case None => SharedMemoryMapOutputTracker.convertMapStatuses(shuffleId, reduceId, reduceId+1, Array())
+      }
+    }
+
     logInfo("Fetching shm-shuffle map output location for shuffle %d, reduce %d took %d ms".format(
                 shuffleId, reduceId, System.currentTimeMillis - startTime))
 
