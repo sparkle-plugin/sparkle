@@ -44,8 +44,8 @@ import java.lang.{String => JString}
  *
  */
 private[spark] class ShmShuffleFetcherKeyValueIterator
-(contenxt: TaskContext,
- statuses: Seq[(BlockId, Long, Long, Long)],
+(context: TaskContext,
+ statuses: Seq[(BlockId, Long, Long, Long, Boolean)],
  reduceShuffleStore: ReduceSHMShuffleStore)
   extends Iterator[(Any, Any)] with Logging {
 
@@ -76,6 +76,9 @@ private[spark] class ShmShuffleFetcherKeyValueIterator
   private val bakvalues = new ArrayList[Array[Byte]]()
   private val okvalues = new ArrayList[Object]()
 
+  private val shuffleMetrics =
+    context.taskMetrics().createTempShuffleReadMetrics()
+
   initialize()
 
   private [this] def initialize(): Unit= {
@@ -84,24 +87,45 @@ private[spark] class ShmShuffleFetcherKeyValueIterator
     val shmRegionIds = new ArrayBuffer[Long]()
     val offsetToIndexChunks = new ArrayBuffer[Long]()
     val sizes  = new ArrayBuffer[Long]()
-
+    var isPrimitive = false
     //construct reduce status based on the collected map status from MapOutputTracker
-    statuses.foreach { case (blockId, regionId, chunkOffset, bucket_size) =>
+    statuses.foreach { case (blockId, regionId, chunkOffset, bucket_size, isPrimitiveKey) =>
             val shuffleBlockId = blockId.asInstanceOf[ShuffleBlockId]
             mapIds.append(shuffleBlockId.mapId)
             sizes.append(bucket_size)
             shmRegionIds.append(regionId)
             offsetToIndexChunks.append(chunkOffset)
+            isPrimitive = isPrimitiveKey
     }
+
     //start the sort-merge
     val reduceStatus = new ReduceStatus(mapIds.toArray, shmRegionIds.toArray,
-      offsetToIndexChunks.toArray, sizes.toArray)
-    reduceShuffleStore.mergeSort(reduceStatus)
-    //until after mergeSort, we can now fetch the real value type
-    //if all of the input merge-sort channels (buckets) belonging to a reducer are empty.
-    //we will choose the type of integer key type. But at the end, there will be no non-zero
-    //iterator output.
-    kvalueTypeId = reduceShuffleStore.getKValueTypeId()
+      offsetToIndexChunks.toArray, sizes.toArray, 0L, 0L, 0L, 0L, 0L)
+
+    if (isPrimitive) {
+      reduceShuffleStore.mergeSort(reduceStatus)
+      //until after mergeSort, we can now fetch the real value type
+      //if all of the input merge-sort channels (buckets) belonging to a reducer are empty.
+      //we will choose the type of integer key type. But at the end, there will be no non-zero
+      //iterator output.
+      kvalueTypeId = reduceShuffleStore.getKValueTypeId()
+    } else {
+      // ReduceShuffleStore.mergeSort is actually factory method of the store
+      // so that I decided to make the object shuffle store and its factory.
+      kvalueTypeId = ShuffleDataModel.KValueTypeId.Object
+      reduceShuffleStore.createShuffleStore(reduceStatus)
+
+      // update stats.
+      shuffleMetrics.incLocalBlocksFetched(reduceStatus.getNumDataChunks)
+      shuffleMetrics.incLocalBytesRead(reduceStatus.getBytesDataChunks)
+      shuffleMetrics.incRemoteBlocksFetched(reduceStatus.getNumRemoteDataChunks)
+      shuffleMetrics.incRemoteBytesRead(reduceStatus.getBytesRemoteDataChunks)
+
+      // If jvm callback enabled, the status contains # of records read from buckets.
+      if (reduceShuffleStore.getEnableJniCallback) {
+        shuffleMetrics.incRecordsRead(reduceStatus.getNumRecords)
+      }
+    }
 
     fetchRound=0
     fetch() //make the first fetch.
@@ -227,25 +251,26 @@ private[spark] class ShmShuffleFetcherKeyValueIterator
         }
       }
       case  ShuffleDataModel.KValueTypeId.Object => {
-        //to retrieve a collection of {k, {v1, v2,...}} from the C++ shuffle engine where
-        //WARNING: we need to provide list based APIS, instead of []. Need to see whether it
-        //can be passed around
-        //create a holder, we need to move this holder in outer scope. so that we do not need
-        //to create every time
         if (fetchRound == 0) {
           for (i <- 0 to SHUFFLE_MERGED_KEYVALUE_PAIRS_RETRIEVAL_SIZE - 1) {
-            okvalues.add(null) //initialization to 0;
+            okvalues.add(null) //initialization to null;
             vvalues.add(null); //initialization to null;
           }
         }
         actualPairs= reduceShuffleStore.getSimpleKVPairs(
           okvalues, vvalues,SHUFFLE_MERGED_KEYVALUE_PAIRS_RETRIEVAL_SIZE)
+
+        // If jvm callbacks disabled, we can see # of records after deserialization.
+        if (!reduceShuffleStore.getEnableJniCallback) {
+          shuffleMetrics.incRecordsRead(actualPairs)
+        }
+
         //now, push the data to the kvbuffer.
         for (i <- 0 to actualPairs-1) {
           kvBuffer(i) = (okvalues(i), vvalues(i))
         }
 
-        if (actualPairs < SHUFFLE_MERGED_KEYVALUE_PAIRS_RETRIEVAL_SIZE ){
+        if (actualPairs < SHUFFLE_MERGED_KEYVALUE_PAIRS_RETRIEVAL_SIZE) {
           endOfFetch = true
         }
       }

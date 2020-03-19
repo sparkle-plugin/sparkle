@@ -34,7 +34,7 @@ import org.apache.spark.storage.{ShuffleBlockId, BlockId, BlockManagerId}
 object SharedMemoryMapOutputTracker {
 
   def getMapSizesByExecutorId(shuffleId: Int, reduceId: Int, mapOutputTracker: MapOutputTracker)
-      : Seq[(BlockId, Long, Long, Long)] = {
+      : Seq[(BlockId, Long, Long, Long, Boolean)] = {
 
     getMapSizesByExecutorId(shuffleId, reduceId, reduceId + 1, mapOutputTracker)
 
@@ -45,7 +45,7 @@ object SharedMemoryMapOutputTracker {
       startPartition: Int,
       endPartition: Int,
       mapOutputTracker: MapOutputTracker)
-    : Seq[(BlockId, Long, Long, Long)]= {
+    : Seq[(BlockId, Long, Long, Long, Boolean)]= {
 
     val statuses = try {
       val method =
@@ -68,12 +68,12 @@ object SharedMemoryMapOutputTracker {
       startPartition: Int,
       endPartition: Int,
       statuses: Array[MapStatus])
-    : Seq[(BlockId, Long, Long, Long)] = {
+    : Seq[(BlockId, Long, Long, Long, Boolean)] = {
     assert(statuses != null)
 
     //Each ArrayBuffer Element contains: block id, region id of map task, chunk offset of 
     //map task, the map bucket's size.
-    val results = new ArrayBuffer[(BlockId, Long, Long, Long)]()
+    val results = new ArrayBuffer[(BlockId, Long, Long, Long, Boolean)]()
 
     for ((status, mapId) <- statuses.zipWithIndex) {
       if (status == null) {
@@ -87,7 +87,7 @@ object SharedMemoryMapOutputTracker {
          results +=
             ((shuffleBlockId,
                shmMapStatus.regionId, shmMapStatus.chunkOffset,
-               status.getSizeForBlock(part)))
+               status.getSizeForBlock(part), shmMapStatus.isPrimitiveKey))
         }
       }
     }

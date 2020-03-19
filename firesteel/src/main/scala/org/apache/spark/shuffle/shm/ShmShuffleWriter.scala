@@ -26,11 +26,18 @@ import org.apache.spark.{SharedMemoryMapStatus, TaskContext, SparkEnv}
 import org.apache.spark.serializer.KryoSerializer
 import org.apache.spark.storage.BlockManagerId
 
+import com.esotericsoftware.kryo.io.ByteBufferOutput;
+
 import com.hp.hpl.firesteel.shuffle._
 import com.hp.hpl.firesteel.shuffle.ThreadLocalShuffleResourceHolder._
 
+import java.util.Comparator
 import java.nio.ByteBuffer
 import scala.annotation.switch
+import scala.collection.mutable.Map
+import scala.collection.mutable.OpenHashMap
+import scala.collection.mutable.Buffer
+import scala.collection.mutable.ArrayBuffer
 
 /**
  * Shuffle writer designed for shared-memory based access.
@@ -44,6 +51,8 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
   //to mimic what is in SortShuffleWriter
   private var stopping = false
   private var mapStatus: MapStatus= null
+
+  private val writeMetrics = context.taskMetrics().shuffleWriteMetrics
 
   private val dep = handle.dependency
   private val numOutputSplits = dep.partitioner.numPartitions
@@ -59,6 +68,9 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
   //we batch 5000 records before we go to the write.This can be configurable later.
   private val SHUFFLE_STORE_BATCH_SERIALIZATION_SIZE = 2000
   //we will pool the kryo instance and ByteBuffer instance later.
+
+  private val SHUFFLE_STORE_ENABLE_JNI_CALLBACK =
+    SparkEnv.get.conf.getBoolean("spark.shm.enable.jni.callback", false)
 
   //per shuffle task resource
   private val threadLocalShuffleResource = getThreadLocalShuffleResource()
@@ -143,26 +155,6 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
             ShuffleDataModel.KValueTypeId.Float, SHUFFLE_STORE_BATCH_SERIALIZATION_SIZE,
             ordering) //true to allow sort/merge-sort with ordering.
         }
-        case doubleValue: Double => {
-          kvalueTypeId = ShuffleDataModel.KValueTypeId.Double
-          shuffleStoreMgr.createMapShuffleStore(
-            serializationResource.getKryoInstance(),
-            serializationResource.getByteBuffer(),
-            threadLocalShuffleResource.getLogicalThreadId,
-            shuffleId, mapId,numberOfPartitions,
-            ShuffleDataModel.KValueTypeId.Double, SHUFFLE_STORE_BATCH_SERIALIZATION_SIZE,
-            ordering) //true to allow sort/merge-sort with ordering.
-        }
-        case stringValue: String => {
-          kvalueTypeId = ShuffleDataModel.KValueTypeId.String
-          shuffleStoreMgr.createMapShuffleStore(
-            serializationResource.getKryoInstance(),
-            serializationResource.getByteBuffer(),
-            threadLocalShuffleResource.getLogicalThreadId,
-            shuffleId, mapId,numberOfPartitions,
-            ShuffleDataModel.KValueTypeId.String, SHUFFLE_STORE_BATCH_SERIALIZATION_SIZE,
-            ordering) //true to allow sort/merge-sort with ordering.
-        }
         case byteArrayValue: Array[Byte] => {
           kvalueTypeId = ShuffleDataModel.KValueTypeId.ByteArray
           shuffleStoreMgr.createMapShuffleStore(
@@ -193,26 +185,45 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
   override def write (records: Iterator[Product2[K,V]]): Unit = {
     var kv: Product2[K, V] = null
     val bit = records.buffered
+    var totalRecordCount: Long = 0L
+    var partitionedBuffer = new OpenHashMap[Int, Buffer[AnyRef]](numberOfPartitions)
+
+    var useJni = true
 
     //to handle the case where the partition has zero size.
     if (bit.hasNext) {
       val firstKV = bit.head //not advance to the next.
 
       mapShuffleStore = createMapShuffleStore(firstKV._1)
+      // Once the store is created, we can identify the type of keys.
+      if (kvalueTypeId == ShuffleDataModel.KValueTypeId.Object) {
+        useJni = SHUFFLE_STORE_ENABLE_JNI_CALLBACK
+      }
+      mapShuffleStore.setEnableJniCallback(useJni)
 
       var count: Int = 0
       //NOTE: we can not use records for iteration--It will miss the first value.
       val scode=kvalueTypeId.getState()
+
       while (bit.hasNext) {
         kv = bit.next()
         val partitionId = handle.dependency.partitioner.getPartition(kv._1)
 
         //NOTE: we will need to check whether overloading method works in this case.
-        mapShuffleStore.serializeKVPair(kv._1, kv._2, partitionId, count, scode)
+        //NOTE: Obj && no jni callbacks -> just store in buffer.
+        if (useJni) {
+          mapShuffleStore.serializeKVPair(kv._1, kv._2, partitionId, count, scode)
+        } else {
+          var buffer = partitionedBuffer.getOrElseUpdate(partitionId, new ArrayBuffer[AnyRef]())
+          buffer.append(kv._1.asInstanceOf[AnyRef])
+          buffer.append(kv._2.asInstanceOf[AnyRef])
+        }
 
         count = count + 1
         if (count == SHUFFLE_STORE_BATCH_SERIALIZATION_SIZE) {
           mapShuffleStore.storeKVPairs(count, kvalueTypeId.getState())
+
+          totalRecordCount += count
           count = 0 //reset
         }
       }
@@ -220,6 +231,7 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
       if (count > 0) {
         //some lefover
         mapShuffleStore.storeKVPairs(count, kvalueTypeId.getState())
+        totalRecordCount += count
       }
     }
     else {
@@ -231,7 +243,10 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
     }
 
     //when done, issue sort and store and get the map status information
-    val mapStatusResult = mapShuffleStore.sortAndStore()
+    // Obj && no jni callbacks -> sort, serialize, store
+    val mapStatusResult =
+      if (useJni) mapShuffleStore.sortAndStore() else serializeAndStore(partitionedBuffer)
+    writeMetrics.incWriteTime(mapStatusResult.getWrittenTimeNs)
 
     logInfo( "store id" + mapShuffleStore.getStoreId
          + " shm-shuffle map status region id: " + mapStatusResult.getRegionIdOfIndexBucket())
@@ -241,11 +256,47 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
     val blockManagerId = blockManager.shuffleServerId
 
     val partitionLengths= mapStatusResult.getMapStatus ()
+    writeMetrics.incBytesWritten(partitionLengths.sum)
+    writeMetrics.incRecordsWritten(totalRecordCount)
     mapStatus = SharedMemoryMapStatus(blockManagerId,
       partitionLengths,
       mapStatusResult.getRegionIdOfIndexBucket,
-      mapStatusResult.getOffsetOfIndexBucket)
+      mapStatusResult.getOffsetOfIndexBucket,
+      kvalueTypeId != ShuffleDataModel.KValueTypeId.Object)
+  }
 
+  // Obj && no jni callbacks -> serialize, then store.
+  private def serializeAndStore(partitionedBuffer:Map[Int, Buffer[AnyRef]]):
+      ShuffleDataModel.MapStatus = {
+    val resource =
+      threadLocalShuffleResource.getSerializationResource
+
+    val kryo = resource.getKryoInstance
+    val output = new ByteBufferOutput(resource.getByteBuffer)
+
+    // empty the buffer that may contain previous serialized records.
+    output.clear
+
+    var partitionLengths = new Array[Int](numberOfPartitions)
+    for (id <- partitionedBuffer.keySet.toSeq.sorted) {
+      var firstPos = output.getByteBuffer.position
+
+      var it = partitionedBuffer(id).iterator
+      while (it.hasNext) {
+        var key = it.next
+        var value = it.next
+        kryo.writeClassAndObject(output, key)
+        kryo.writeClassAndObject(output, value)
+      }
+
+      partitionLengths(id) = output.getByteBuffer.position - firstPos
+    }
+
+    val res = mapShuffleStore.writeToHeap(output.getByteBuffer, partitionLengths)
+
+    output.clear
+
+    return res
   }
 
   /**
@@ -277,10 +328,9 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
         //For shm-based shuffle, to shutdown the shuffle store for this map task (basically to
         // clean up the occupied DRAM based resource. but not NVM-based resource, which will be
         // cleaned up during unregister the shuffle.)
+        val startTime = System.nanoTime
         mapShuffleStore.stop();
-
+        writeMetrics.incWriteTime(System.nanoTime - startTime)
       }
-
   }
 }
-

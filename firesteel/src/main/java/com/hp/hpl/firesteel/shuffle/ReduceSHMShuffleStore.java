@@ -25,8 +25,13 @@ import java.nio.ByteBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import scala.Tuple2;
+
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Comparator;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ReduceSHMShuffleStore implements ReduceShuffleStore {
@@ -117,6 +122,25 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
     //to keep trakc of the aggregation property 
     private boolean aggregation; 
 
+    private boolean enableJniCallback = false;
+    public void setEnableJniCallback(boolean doJniCallback) {
+        this.enableJniCallback = doJniCallback;
+    }
+    public boolean getEnableJniCallback() {
+        return this.enableJniCallback;
+    }
+
+    private int numFetchedKvPairs = 0; // from kvPairBuffer or kvPairMap.
+    private List<Tuple2<Comparable, Object>> kvPairBuffer = new ArrayList<>();
+    private Comparator<Tuple2<Comparable, Object>> comp = new Comparator<Tuple2<Comparable, Object>>() {
+            @Override
+            public int compare(Tuple2<Comparable, Object> p1, Tuple2<Comparable, Object> p2) {
+                return p1._1.compareTo(p2._1);
+            }
+        };
+
+    private Map<Object, ArrayList<Object>> kvPairMap = new HashMap<>();
+    private Object[] kvPairMapKeys;
 
     @Override
     public void initialize (int shuffleId, int reduceId, int numberOfPartitions, boolean ordering, boolean aggregation) {
@@ -160,7 +184,9 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
 	//}
         
         //then return the native resources as well. 
-        nstop(this.pointerToStore);
+        if (this.pointerToStore != 0L) {
+            nstop(this.pointerToStore);
+        }
     }
 
     //shuffle store manager is the creator of map shuffle manager and reduce shuffle manager
@@ -207,6 +233,25 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
                                    this.byteBuffer.capacity(), this.ordering, this.aggregation);
     }
 
+    // NOTE: This method is dedicated to pairs with the Object type key.
+    //       ShuffleStore(Like) contains whole serialized pairs in the DRAM from the GlobalHeap.
+    //       ShuffleStoreLike is stateless store which copys all serialized paris into DirectBuffer.
+    public void createShuffleStore(ShuffleDataModel.ReduceStatus statuses) {
+        int totalBuckets = statuses.getMapIds().length;
+
+        if (this.enableJniCallback) {
+            this.pointerToStore = ncreateShuffleStore(this.shuffleStoreManager.getPointer(), shuffleId, reduceId,
+                                                      statuses, totalBuckets, this.byteBuffer,
+                                                      this.byteBuffer.capacity(), this.ordering, this.aggregation);
+            return ;
+        }
+
+        this.byteBuffer.rewind();
+        nfromShuffleStoreLike(this.shuffleStoreManager.getPointer(), shuffleId, reduceId,
+                              statuses, totalBuckets, this.byteBuffer, this.byteBuffer.capacity());
+        this.byteBuffer.limit((int)(statuses.getBytesDataChunks() + statuses.getBytesRemoteDataChunks()));
+    }
+
     /**
      * @param buffer is to passed in the de-serialization buffer's pointer.
      * @param ordering to specify whether the keys need to be ordered at the reduce shuffle store side.
@@ -219,6 +264,15 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
                                          int numberOfPartitions, ByteBuffer buffer, int bufferCapacity,
                                          boolean ordering, boolean aggregation);
 
+    private native long ncreateShuffleStore(long ptrToShuffleManager, int shuffleId, int reduceId,
+                                            ShuffleDataModel.ReduceStatus statuses,
+                                            int totalBuckets, ByteBuffer buffer, int bufferCapacity,
+                                            boolean ordering, boolean aggregation);
+
+    // copy whole serialized kv pairs in NV buckets to DirectBuffer.
+    private native long nfromShuffleStoreLike(long ptrToShuffleManager, int shuffleId, int reduceId,
+                                              ShuffleDataModel.ReduceStatus statuses,
+                                              int totalBuckets, ByteBuffer buffer, int bufferCapacity);
 
     /**
      * TODO: we will need to design the shared-memory region data structure, so that we can carry
@@ -308,38 +362,41 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
      * to retrieve from C++ side the value type definition for the arbitrary object based value. 
      */
     private native byte[] ngetVValueType(long ptrToStore);
-    
 
-    //we need to pass in the value holder and key holder, given the number of maximum knumbers to get.
     @Override
-    public int getKVPairs (ArrayList<Object> kvalues, ArrayList<ArrayList<Object>> vvalues, int knumbers) {
-       this.deserializer.init();
-       int pvVOffsets[] = new int[knumbers];  //offset to each group of {vp,1, vp,2...,vp,k}.
+    public int getKVPairs (ArrayList<Object> kvalues, ArrayList<ArrayList<Object>> vvalues, int knumbers,
+                           int[] numRawPairs) {
+        if (!this.enableJniCallback) {
+            return hashMapDirectBuffer(kvalues, vvalues, knumbers, numRawPairs);
+        }
 
-       int actualKVPairs = nGetKVPairs(this.deserializer.getByteBuffer(),  
-    		                            this.byteBuffer.capacity(), pvVOffsets, knumbers);
-       for (int i=0; i<actualKVPairs; i++) {
-           //read the key
-           Object p = this.deserializer.readObject();//readClassObject at this time.
-           kvalues.set(i, p);
-           //then read all of the values {vp,1, vp,2...vp,k} corresponding to the key.
-           //the corresponding value pairs
-           ArrayList<Object> holder = new ArrayList<Object>();
-           ByteBuffer populatedByteBuffer = this.deserializer.getByteBuffer();
-           {
+        // prep key holders and value offsets in the direct buffer.
+        Object okvalues[] = new Object[knumbers];
+        int pvVOffsets[] = new int[knumbers];
 
-               int endPosition = pvVOffsets[i];
-               while ( populatedByteBuffer.position() < endPosition){
-                   Object s = this.deserializer.readObject();//readClassObject at this time.
-                   holder.add(s);
-               }
-           }
+        this.deserializer.init();
+        int actualKVPairs = nGetKVPairs(this.pointerToStore, okvalues,
+                                        this.deserializer.getByteBuffer(),
+                                        this.byteBuffer.capacity(), pvVOffsets, knumbers);
 
-           vvalues.set(i, holder);
-       }
-       this.deserializer.close();
+        for (int i=0; i<actualKVPairs; i++) {
+            Object key = okvalues[i];
+            kvalues.set(i, key);
 
-       return actualKVPairs;
+            ArrayList<Object> holder = new ArrayList<Object>();
+
+            ByteBuffer populatedByteBuffer = this.deserializer.getByteBuffer();
+            int endPosition = pvVOffsets[i];
+            while (populatedByteBuffer.position() < endPosition) {
+                Object s = this.deserializer.readObject();//readClassObject at this time.
+                holder.add(s);
+            }
+
+            vvalues.set(i, holder);
+        }
+        this.deserializer.close();
+
+        return actualKVPairs;
     }
 
     /**
@@ -350,42 +407,150 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
      * @param knumbers
      * @return
      */
-    private native int nGetKVPairs(ByteBuffer byteBuffer, int buffer_capacity, int voffsets[], int knumbers);
+    private native int nGetKVPairs(long ptrToStore, Object kvalues[], ByteBuffer
+                                   byteBuffer, int buffer_capacity,
+                                   int voffsets[], int knumbers);
 
+    /**
+     * return unordered kv pairs to ShuffleReader's Iterator.
+     * @param kvalues
+     * @param vvalues
+     * @param knumbers
+     * @return the number of kv pairs which are deserialized from the global heap.
+     */
     public int getSimpleKVPairs (ArrayList<Object> kvalues, ArrayList<Object> vvalues, int knumbers) {
-    	 this.deserializer.init();
-         int pvVOffsets[] = new int[knumbers];  //offset to each group of {vp,1, vp,2...,vp,k}.
+        // prep key holders and value offsets in the direct buffer.
+        Object okvalues[] = new Object[knumbers];
+        int pvVOffsets[] = new int[knumbers];
 
-         int actualKVPairs = nGetSimpleKVPairs(this.deserializer.getByteBuffer(),  
-      		                            this.byteBuffer.capacity(), pvVOffsets, knumbers);
-         for (int i=0; i<actualKVPairs; i++) {
-             //read the key
-             Object p = this.deserializer.readObject();//readClassObject at this time.
-             kvalues.set(i, p);
-             //then read all of the values {vp,1, vp,2...vp,k} corresponding to the key.
-             //the corresponding value pairs
-             Object s = null;
-             ByteBuffer populatedByteBuffer = this.deserializer.getByteBuffer();
-             {
+        if (!this.enableJniCallback) {
+            if (!this.ordering) {
+                return readDirectBuffer(kvalues, vvalues, knumbers);
+            }
+            return mergeSortDirectBuffer(kvalues, vvalues, knumbers);
+        }
 
-                 int endPosition = pvVOffsets[i];
-                 if( populatedByteBuffer.position() < endPosition){
-                     s = this.deserializer.readObject();//readClassObject at this time.
-                 }
-                 else {
-                	 throw new RuntimeException ("deserializer cannot de-serialize object following the offset boundary");
-                 }
-             }
+        this.deserializer.init();
+        int actualKVPairs = nGetSimpleKVPairs(this.pointerToStore, okvalues,
+                                              this.deserializer.getByteBuffer(),
+                                              this.byteBuffer.capacity(), pvVOffsets, knumbers);
 
-             vvalues.set(i, s);
-         }
-         this.deserializer.close();
+        for (int i=0; i<actualKVPairs; i++) {
+            Object key = okvalues[i];
+            kvalues.set(i, key);
 
-         return actualKVPairs;
+            Object value = null;
+            ByteBuffer populatedByteBuffer = this.deserializer.getByteBuffer();
+            {
+                int endPosition = pvVOffsets[i];
+                if( populatedByteBuffer.position() < endPosition){
+                    value = this.deserializer.readObject(); //readClassObject at this time.
+                }
+                else {
+                    throw new RuntimeException ("deserializer cannot de-serialize object following the offset boundary");
+                }
+            }
+            vvalues.set(i, value);
+        }
+        this.deserializer.close();
+
+        return actualKVPairs;
     }
-    
-    private native int nGetSimpleKVPairs(ByteBuffer byteBuffer, int buffer_capacity, int voffsets[], int knumbers);
-    
+
+    /**
+     * @param knumbers the max number of pairs to be read.
+     * @return # of pairs read. It would be less than knumber because of the end of buffer.
+     */
+    private int readDirectBuffer(ArrayList<Object> kvalues, ArrayList<Object> vvalues, int knumbers) {
+        ByteBufferInput in = new ByteBufferInput(this.byteBuffer);
+        int numReadPairs = 0;
+        for (int i=0; i<knumbers; ++i) {
+            if (!this.byteBuffer.hasRemaining()) {
+                this.byteBuffer.clear();
+                break;
+            }
+
+            kvalues.set(i, this.kryo.readClassAndObject(in));
+            vvalues.set(i, this.kryo.readClassAndObject(in));
+            numReadPairs++;
+        }
+        return numReadPairs;
+    }
+
+    private int mergeSortDirectBuffer(ArrayList<Object> kvalues, ArrayList<Object> vvalues, int knumbers) {
+        // initialize the Reducer.
+        if (this.numFetchedKvPairs == 0) {
+            ByteBufferInput in = new ByteBufferInput(this.byteBuffer);
+            while (this.byteBuffer.hasRemaining()) {
+                this.kvPairBuffer.add(new Tuple2<>((Comparable)this.kryo.readClassAndObject(in),
+                                                   this.kryo.readClassAndObject(in)));
+            }
+            kvPairBuffer.sort(comp);
+            this.byteBuffer.clear();
+        }
+
+        int numReadPairs = 0;
+        for (int i=numFetchedKvPairs; i<kvPairBuffer.size(); ++i) {
+            kvalues.set(numReadPairs, kvPairBuffer.get(i)._1);
+            vvalues.set(numReadPairs, kvPairBuffer.get(i)._2);
+            numReadPairs++;
+            numFetchedKvPairs++;
+            if (numReadPairs == knumbers) {
+                break;
+            }
+        }
+
+        // cleanup
+        if (numReadPairs < knumbers) {
+            kvPairBuffer.clear();
+            numFetchedKvPairs = 0;
+        }
+
+        return numReadPairs;
+    }
+
+    private int hashMapDirectBuffer(ArrayList<Object> kvalues, ArrayList<ArrayList<Object>> vvalues,
+                                    int knumbers, int[] numRawPairs) {
+        // initialize the Reducer.
+        if (this.numFetchedKvPairs == 0) {
+            ByteBufferInput in = new ByteBufferInput(this.byteBuffer);
+            int numPairsRead = 0;
+            while (this.byteBuffer.hasRemaining()) {
+                Object key = this.kryo.readClassAndObject(in);
+                kvPairMap.putIfAbsent(key, new ArrayList<>());
+                kvPairMap.get(key).add(this.kryo.readClassAndObject(in));
+                numPairsRead++;
+            }
+            numRawPairs[0] = numPairsRead;
+            this.byteBuffer.clear();
+
+            kvPairMapKeys = kvPairMap.keySet().toArray();
+        }
+
+        int numReadPairs = 0;
+        for (int i=numFetchedKvPairs; i<kvPairMapKeys.length; ++i) {
+            kvalues.set(numReadPairs, kvPairMapKeys[i]);
+            vvalues.set(numReadPairs, kvPairMap.get(kvPairMapKeys[i]));
+            numReadPairs++;
+            numFetchedKvPairs++;
+            if (numReadPairs == knumbers) {
+                break;
+            }
+        }
+
+        // cleanup
+        if (numReadPairs < knumbers) {
+            kvPairMap.clear();
+            numFetchedKvPairs = 0;
+        }
+
+        return numReadPairs;
+    }
+
+    private native int nGetSimpleKVPairs(long ptrToStore, Object kvalues[], ByteBuffer
+                                         byteBuffer, int buffer_capacity,
+                                         int voffsets[], int knumbers);
+
     //vvalues only has the first layer of element populated with empty object. the second level
     //of object array will have to be created by Java.
     @Override

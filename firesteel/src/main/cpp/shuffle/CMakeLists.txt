@@ -14,6 +14,7 @@
 # limitations under the License.
 #
 
+find_package (jni REQUIRED)
 find_package (tbb REQUIRED)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
@@ -46,6 +47,8 @@ set_property(GLOBAL APPEND PROPERTY ONLY_SHUFFLE_SRC
         ${CMAKE_CURRENT_SOURCE_DIR}/HashMapReduceChannelWithIntKeys.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/PassThroughReduceChannelWithIntKeys.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/ReduceShuffleStoreWithIntKeys.cc 
+        ${CMAKE_CURRENT_SOURCE_DIR}/ReduceShuffleStoreWithObjKeys.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/ReduceShuffleStoreLike.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/ShuffleDataSharedMemoryManagerHelper.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/longext/MapShuffleStoreWithLongKeys.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/longext/ReduceShuffleStoreWithLongKeys.cc
@@ -63,8 +66,17 @@ set_property(GLOBAL APPEND PROPERTY ONLY_SHUFFLE_SRC
         ${CMAKE_CURRENT_SOURCE_DIR}/ShuffleStoreManager.cc 
         ${CMAKE_CURRENT_SOURCE_DIR}/ByteBufferPool.cc 
         ${CMAKE_CURRENT_SOURCE_DIR}/ArrayBufferPool.cc
-     
+        ${CMAKE_CURRENT_SOURCE_DIR}/MapShuffleStoreWithObjKeys.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/KVPairLoaderImpl.cc
 )
+
+IF (JNI_GENERAL_INCLUDE_DIR)
+  include_directories(${JNI_GENERAL_INCLUDE_DIR})
+ENDIF ()
+
+IF (JNI_PLATFORM_SPECIFIC_INCLUDE_DIR)
+  include_directories(${JNI_PLATFORM_SPECIFIC_INCLUDE_DIR})
+ENDIF ()
 
 get_property(TMP_ONLY_SHUFFLE_SRC GLOBAL PROPERTY ONLY_SHUFFLE_SRC)
 add_library(shuffle OBJECT ${TMP_ONLY_SHUFFLE_SRC})

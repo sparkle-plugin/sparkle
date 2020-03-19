@@ -41,6 +41,22 @@ JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_
 
 /*
  * Class:     com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore
+ * Method:    ncreateShuffleStore
+ * Signature: (JIILcom/hp/hpl/firesteel/shuffle/ShuffleDataModel/ReduceStatus;ILjava/nio/ByteBuffer;IZZ)J
+ */
+JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_ncreateShuffleStore
+  (JNIEnv *, jobject, jlong, jint, jint, jobject, jint, jobject, jint, jboolean, jboolean);
+
+/*
+ * Class:     com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore
+ * Method:    nfromShuffleStoreLike
+ * Signature: (JIILcom/hp/hpl/firesteel/shuffle/ShuffleDataModel/ReduceStatus;ILjava/nio/ByteBuffer;I)J
+ */
+JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_nfromShuffleStoreLike
+  (JNIEnv *, jobject, jlong, jint, jint, jobject, jint, jobject, jint);
+
+/*
+ * Class:     com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore
  * Method:    ngetKValueTypeId
  * Signature: (J)I
  */
@@ -66,18 +82,18 @@ JNIEXPORT jbyteArray JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleS
 /*
  * Class:     com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore
  * Method:    nGetKVPairs
- * Signature: (Ljava/nio/ByteBuffer;I[II)I
+ * Signature: (J[Ljava/lang/Object;Ljava/nio/ByteBuffer;I[II)I
  */
 JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_nGetKVPairs
-  (JNIEnv *, jobject, jobject, jint, jintArray, jint);
+  (JNIEnv *, jobject, jlong, jobjectArray, jobject, jint, jintArray, jint);
 
 /*
  * Class:     com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore
  * Method:    nGetSimpleKVPairs
- * Signature: (Ljava/nio/ByteBuffer;I[II)I
+ * Signature: (J[Ljava/lang/Object;Ljava/nio/ByteBuffer;I[II)I
  */
 JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_nGetSimpleKVPairs
-  (JNIEnv *, jobject, jobject, jint, jintArray, jint);
+  (JNIEnv *, jobject, jlong, jobjectArray, jobject, jint, jintArray, jint);
 
 /*
  * Class:     com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore

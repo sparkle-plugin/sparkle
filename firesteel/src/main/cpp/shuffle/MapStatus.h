@@ -88,6 +88,7 @@ struct MapStatus {
   //each bucket will have its size, which can be 0.
   vector <int> bucketSizes;
   int totalNumberOfPartitions; 
+  long dataChunkWrittenTimeNs = 0;
 
   MapStatus(uint64_t regionId, uint64_t offset, int nPartitions, int mId):
 	  mapId(mId),
@@ -106,6 +107,10 @@ struct MapStatus {
     bucketSizes[partition]=size;
   }
 
+  void setWrittenTime(long time_ns) {
+    dataChunkWrittenTimeNs = time_ns;
+  }
+
   int getMapId() {
      return mapId;
   }
@@ -120,6 +125,10 @@ struct MapStatus {
 
   vector<int> & getBucketSizes() {
     return bucketSizes;
+  }
+
+  long getWrittenTimeNs() {
+    return dataChunkWrittenTimeNs;
   }
 };
 

@@ -98,7 +98,7 @@ public class SimulatedReduceSHMShuffleStore implements ReduceShuffleStore {
     //we need to pass in the value holder and key holder, given the number of maximum knumbers
     //we will get.
     @Override
-    public int getKVPairs (ArrayList<Object> kvalues, ArrayList<ArrayList<Object>> vvalues, int knumbers) {
+    public int getKVPairs (ArrayList<Object> kvalues, ArrayList<ArrayList<Object>> vvalues, int knumbers, int[] numRawPairs) {
         int actualKVPairs = 0;
         //when actual kv pairs smaller than the specified knumbers, it indicates the end of the de-serialization
         //stream.

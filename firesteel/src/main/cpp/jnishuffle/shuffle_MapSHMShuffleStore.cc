@@ -16,6 +16,8 @@
  */
 
 #include <glog/logging.h>
+#include <iostream>
+#include <memory>
 #include "com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore.h"
 #include "MapShuffleStoreManager.h"
 #include "ShuffleStoreManager.h"
@@ -23,6 +25,7 @@
 #include "MapShuffleStoreWithLongKeys.h"
 #include "MapShuffleStoreWithStringKeys.h"
 #include "MapShuffleStoreWithByteArrayKeys.h"
+#include "MapShuffleStoreWithObjKeys.h"
 #include "GenericMapShuffleStore.h"
 #include "SimpleUtils.h"
 
@@ -166,6 +169,29 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsto
      env->ReleaseIntArrayElements (voffsets,vo, 0);
      env->ReleaseIntArrayElements (partitions, par, 0);
 
+}
+
+JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nCopyToNativeStore
+(JNIEnv* env, jobject obj, jlong ptrToStore, jobject byteBuffer, jintArray voffsets,
+ jobjectArray keys, jintArray keyHashes, jintArray partitions, jint numPairs) {
+  MapShuffleStoreWithObjKeys *shuffleStore =
+    reinterpret_cast<MapShuffleStoreWithObjKeys*> (ptrToStore);
+  unsigned char *buf = (unsigned char * )env->GetDirectBufferAddress(byteBuffer);
+
+  int* par = env->GetIntArrayElements (partitions, NULL);
+  int* vo = env->GetIntArrayElements (voffsets, NULL);
+  int* okhashes = env->GetIntArrayElements (keyHashes, NULL);
+
+  vector<jobject> keysVec(numPairs);
+  for (auto i=0; i<numPairs; ++i) {
+    jobject key = env->GetObjectArrayElement(keys, i);
+    keysVec[i] = env->NewGlobalRef(key);
+  }
+  shuffleStore->storeKVPairs(keysVec, okhashes, buf, vo, par, numPairs);
+
+  env->ReleaseIntArrayElements(partitions, par, 0);
+  env->ReleaseIntArrayElements(voffsets, vo, 0);
+  env->ReleaseIntArrayElements(keyHashes, okhashes, 0);
 }
 
 /*
@@ -604,17 +630,50 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsor
            //(8)then free the local array.
            free (cArray);
 
-    	  break;
+           break;
         }
         case KValueTypeId::Object:
         {
-          break; 
+          MapShuffleStoreWithObjKeys* storePtr
+            = dynamic_cast<MapShuffleStoreWithObjKeys*>(gstore);
+
+          unique_ptr<MapStatus> mapStatus {storePtr->write(env)};
+
+          // update Java-side MapStatus.
+          jclass retClazz = env->GetObjectClass(mStatus);
+          {
+            jfieldID fidRegionId {env->GetFieldID(retClazz, "regionIdOfIndexBucket", "J")};
+            env->SetLongField(mStatus, fidRegionId, mapStatus->getRegionId());
+          }
+          {
+            jfieldID fidOffset {env->GetFieldID(retClazz, "offsetOfIndexBucket", "J")};
+            env->SetLongField(mStatus, fidOffset, mapStatus->getOffsetOfIndexBucket());
+          }
+          {
+            jfieldID fidWrittenTime {env->GetFieldID(retClazz, "dataChunkWrittenTimeNs", "J")};
+            env->SetLongField(mStatus, fidWrittenTime, mapStatus->getWrittenTimeNs());
+          }
+          {
+            unique_ptr<jlong[]> tmp(new jlong[totalNumberOfPartitions]);
+            vector<int>& sizes = mapStatus->getBucketSizes();
+            for (int i=0; i<totalNumberOfPartitions; ++i) {
+              tmp[i] = (sizes.size() == 0) ? 0 : (long)sizes[i];
+            }
+
+            jlongArray bucketSizes {env->NewLongArray(totalNumberOfPartitions)};
+            env->SetLongArrayRegion(bucketSizes, 0, totalNumberOfPartitions, tmp.get());
+
+            jfieldID fidMapStatus {env->GetFieldID(retClazz, "mapStatus", "[J")};
+            env->SetObjectField(mStatus, fidMapStatus, bucketSizes);
+          }
+
+          storePtr->deleteJobjectKeys(env);
+          break;
         }
         case KValueTypeId::Unknown:
         {
-          break; 
+          break;
         }
-	 
        //we will later fill in other kinds of stores. 
 
     }
@@ -727,7 +786,48 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsto
 
 }
 
+/*
+ * Class:     com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore
+ * Method:    nwriteToHeap
+ * Signature: (JI[ILjava/nio/ByteBuffer;Lcom/hp/hpl/firesteel/shuffle/ShuffleDataModel/MapStatus;)V
+ */
+JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nwriteToHeap
+(JNIEnv *env, jobject obj, jlong ptrToStore, jint numPartitions, jintArray partitionLengths,
+ jobject holder, jobject mStatus) {
+  MapShuffleStoreWithObjKeys* storePtr
+    = reinterpret_cast<MapShuffleStoreWithObjKeys*>(ptrToStore);
 
+  byte *buff = static_cast<byte*>(env->GetDirectBufferAddress(holder));
+  int *len = env->GetIntArrayElements(partitionLengths, NULL);
+  unique_ptr<MapStatus> mapStatus {storePtr->write(buff, numPartitions, len)};
 
+  env->ReleaseIntArrayElements(partitionLengths, len, 0);
 
+  // update Java-side MapStatus.
+  jclass retClazz = env->GetObjectClass(mStatus);
+  {
+    jfieldID fidRegionId {env->GetFieldID(retClazz, "regionIdOfIndexBucket", "J")};
+    env->SetLongField(mStatus, fidRegionId, mapStatus->getRegionId());
+  }
+  {
+    jfieldID fidOffset {env->GetFieldID(retClazz, "offsetOfIndexBucket", "J")};
+    env->SetLongField(mStatus, fidOffset, mapStatus->getOffsetOfIndexBucket());
+  }
+  {
+    jfieldID fidWrittenTime {env->GetFieldID(retClazz, "dataChunkWrittenTimeNs", "J")};
+    env->SetLongField(mStatus, fidWrittenTime, mapStatus->getWrittenTimeNs());
+  }
+  {
+    unique_ptr<jlong[]> tmp(new jlong[numPartitions]);
+    vector<int>& sizes = mapStatus->getBucketSizes();
+    for (int i=0; i<numPartitions; ++i) {
+      tmp[i] = (sizes.size() == 0) ? 0 : (long)sizes[i];
+    }
 
+    jlongArray bucketSizes {env->NewLongArray(numPartitions)};
+    env->SetLongArrayRegion(bucketSizes, 0, numPartitions, tmp.get());
+
+    jfieldID fidMapStatus {env->GetFieldID(retClazz, "mapStatus", "[J")};
+    env->SetObjectField(mStatus, fidMapStatus, bucketSizes);
+  }
+}

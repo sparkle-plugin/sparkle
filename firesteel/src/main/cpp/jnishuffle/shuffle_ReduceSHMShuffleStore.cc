@@ -16,14 +16,20 @@
  */
 
 #include <glog/logging.h>
+#include <stdexcept>
+#include <vector>
+#include <chrono>
 #include "com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore.h"
 #include "ShuffleStoreManager.h"
 #include "ReduceShuffleStoreManager.h"
 #include "ReduceShuffleStoreWithIntKeys.h"
 #include "ReduceShuffleStoreWithLongKeys.h"
 #include "ReduceShuffleStoreWithByteArrayKeys.h"
+#include "ReduceShuffleStoreWithObjKeys.h"
+#include "ReduceShuffleStoreLike.h"
 #include "ExtensibleByteBuffers.h"
 #include "GenericReduceShuffleStore.h"
+#include "JniUtils.h"
 
 using namespace std;
 
@@ -336,6 +342,136 @@ JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_
   return ptr;
 }
 
+JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_ncreateShuffleStore
+(JNIEnv* env, jobject obj, jlong ptrShuffleStoreManager, jint shuffleId, jint reducerId,
+ jobject reduceStatus, jint totalBuckets, jobject byteBuffer, jint bufferCapacity,
+ jboolean needOrdering, jboolean needAggregation) {
+
+  ReduceStatus status(reducerId);
+  jclass clazz = env->GetObjectClass(reduceStatus);
+  {
+    jfieldID fidSizes = env->GetFieldID(clazz, "sizes", "[J");
+    long* bucketSizes = env->GetLongArrayElements((jlongArray)env->GetObjectField(reduceStatus, fidSizes), NULL);
+
+    jfieldID fidRegionIds =
+      env->GetFieldID(clazz, "regionIdsOfIndexChunks", "[J");
+    long* regionIds =
+      env->GetLongArrayElements((jlongArray)env->GetObjectField(reduceStatus, fidRegionIds), NULL);
+
+    jfieldID fidOffsets = env->GetFieldID(clazz, "offsetsOfIndexChunks", "[J");
+    long* offsets =
+      env->GetLongArrayElements((jlongArray)env->GetObjectField(reduceStatus, fidOffsets), NULL);
+
+    jfieldID fidMapIds = env->GetFieldID(clazz, "mapIds", "[I");
+    int* mapIds =
+      env->GetIntArrayElements((jintArray)env->GetObjectField(reduceStatus, fidMapIds), NULL);
+
+    for (int i=0; i<totalBuckets; ++i) {
+      MapBucket bucket(reducerId, bucketSizes[i], regionIds[i], offsets[i], mapIds[i]);
+      status.addMapBucket(bucket);
+    }
+  }
+
+  unsigned char *buffer =
+    (unsigned char*) env->GetDirectBufferAddress(byteBuffer);
+  ReduceShuffleStoreManager* reduceShuffleStoreManager =
+    reinterpret_cast<ShuffleStoreManager*>(ptrShuffleStoreManager)->getReduceShuffleStoreManager();
+
+  ReduceShuffleStoreWithObjKeys* resultStore = dynamic_cast<ReduceShuffleStoreWithObjKeys*>(
+    reduceShuffleStoreManager->createStore(shuffleId, reducerId,
+                                           status, -1, // Do we really need numPartitions?
+                                           nullptr, buffer, bufferCapacity,
+                                           KValueTypeId::Object, needOrdering, needAggregation));
+
+  resultStore->prepare(env);
+
+  // pass stats to the JVM.
+  {
+    jfieldID fid {env->GetFieldID(clazz, "numDataChunks", "J")};
+    env->SetLongField(reduceStatus, fid, resultStore->getNumDataChunksRead());
+  }
+  {
+    jfieldID fid {env->GetFieldID(clazz, "bytesDataChunks", "J")};
+    env->SetLongField(reduceStatus, fid, resultStore->getBytesDataChunksRead());
+  }
+  {
+    jfieldID fid {env->GetFieldID(clazz, "numRemoteDataChunks", "J")};
+    env->SetLongField(reduceStatus, fid, resultStore->getNumRemoteDataChunksRead());
+  }
+  {
+    jfieldID fid {env->GetFieldID(clazz, "bytesRemoteDataChunks", "J")};
+    env->SetLongField(reduceStatus, fid, resultStore->getBytesRemoteDataChunksRead());
+  }
+  {
+    jfieldID fid {env->GetFieldID(clazz, "numRecords", "J")};
+    env->SetLongField(reduceStatus, fid, resultStore->getNumKVPairsRead());
+  }
+
+  return reinterpret_cast<long>(resultStore);
+}
+
+/*
+ * Class:     com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore
+ * Method:    nfromShuffleStoreLike
+ * Signature: (JIILcom/hp/hpl/firesteel/shuffle/ShuffleDataModel/ReduceStatus;ILjava/nio/ByteBuffer;I)J
+ */
+JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_nfromShuffleStoreLike
+(JNIEnv *env, jobject obj, jlong ptrShuffleStoreManager, jint shuffleId, jint reducerId,
+ jobject reduceStatus, jint totalBuckets, jobject byteBuffer, jint bufferCapacity) {
+  ReduceStatus status(reducerId);
+  jclass clazz = env->GetObjectClass(reduceStatus);
+  {
+    jfieldID fidSizes = env->GetFieldID(clazz, "sizes", "[J");
+    long* bucketSizes = env->GetLongArrayElements((jlongArray)env->GetObjectField(reduceStatus, fidSizes), NULL);
+
+    jfieldID fidRegionIds =
+      env->GetFieldID(clazz, "regionIdsOfIndexChunks", "[J");
+    long* regionIds =
+      env->GetLongArrayElements((jlongArray)env->GetObjectField(reduceStatus, fidRegionIds), NULL);
+
+    jfieldID fidOffsets = env->GetFieldID(clazz, "offsetsOfIndexChunks", "[J");
+    long* offsets =
+      env->GetLongArrayElements((jlongArray)env->GetObjectField(reduceStatus, fidOffsets), NULL);
+
+    jfieldID fidMapIds = env->GetFieldID(clazz, "mapIds", "[I");
+    int* mapIds =
+      env->GetIntArrayElements((jintArray)env->GetObjectField(reduceStatus, fidMapIds), NULL);
+
+    for (int i=0; i<totalBuckets; ++i) {
+      MapBucket bucket(reducerId, bucketSizes[i], regionIds[i], offsets[i], mapIds[i]);
+      status.addMapBucket(bucket);
+    }
+  }
+
+  byte *buffer = (byte*) env->GetDirectBufferAddress(byteBuffer);
+
+  unique_ptr<ReduceShuffleStoreLike> resultStore(new ReduceShuffleStoreLike());
+  resultStore->load(buffer, reducerId, status);
+
+  // pass stats to the JVM.
+  {
+    jfieldID fid {env->GetFieldID(clazz, "numDataChunks", "J")};
+    env->SetLongField(reduceStatus, fid, resultStore->getNumDataChunksRead());
+  }
+  {
+    jfieldID fid {env->GetFieldID(clazz, "bytesDataChunks", "J")};
+    env->SetLongField(reduceStatus, fid, resultStore->getBytesDataChunksRead());
+  }
+  {
+    jfieldID fid {env->GetFieldID(clazz, "numRemoteDataChunks", "J")};
+    env->SetLongField(reduceStatus, fid, resultStore->getNumRemoteDataChunksRead());
+  }
+  {
+    jfieldID fid {env->GetFieldID(clazz, "bytesRemoteDataChunks", "J")};
+    env->SetLongField(reduceStatus, fid, resultStore->getBytesRemoteDataChunksRead());
+  }
+  {
+    jfieldID fid {env->GetFieldID(clazz, "numRecords", "J")};
+    env->SetLongField(reduceStatus, fid, resultStore->getNumKVPairsRead());
+  }
+
+  return 0;
+}
 
 /*
  * Class:     com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore
@@ -417,18 +553,44 @@ JNIEXPORT jbyteArray JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleS
  * Signature: (Ljava/nio/ByteBuffer;I[II)I
  */
 JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_nGetKVPairs
-(JNIEnv *env, jobject obj , jobject byteBuffer,  jint buffer_capacity, jintArray voffsets, jint knubers) {
+(JNIEnv *env, jobject obj, jlong ptrToReduceStore, jobjectArray okvalues, jobject byteBuffer,
+ jint buffer_capacity, jintArray voffsetsArray, jint knumbers){
+  ReduceShuffleStoreWithObjKeys* reduceShuffleStore =
+    reinterpret_cast<ReduceShuffleStoreWithObjKeys*> (ptrToReduceStore);
 
- {
+  // retrieve knumbers kv pairs from buckets via the store.
+  vector<vector<ReduceKVPair>> pairs {reduceShuffleStore->fetchAggregatedPairs(knumbers)};
+  int actualNumKVPairs = static_cast<int>(pairs.size());
 
-    const char *exClassName = "java/lang/UnsupportedOperationException";
-    jclass ecls = env->FindClass (exClassName);
-    if (ecls != NULL){
-      env->ThrowNew(ecls, "nstoreKVPairs for arbitrary <k,v> is not supported");
+  byte* buffer = (byte*)env->GetDirectBufferAddress(byteBuffer);
+  int currentBufferSize {0};
+
+  // copy key-values pair back to Java.
+  vector<jint> valueOffsets;
+  int actualOffset {0};
+  for (int i=0; i<actualNumKVPairs; ++i) {
+    env->SetObjectArrayElement(okvalues, i, pairs[i][0].getKey());
+
+    for (auto& pair : pairs[i]) {
+      int serValueSize = pair.getSerValueSize();
+      if (currentBufferSize + serValueSize > buffer_capacity) {
+        throw length_error("direct buffer is almost full.");
+      }
+
+      memcpy(buffer, pair.getSerValue(), serValueSize);
+      buffer += serValueSize;
+
+      actualOffset += serValueSize;
     }
 
+    valueOffsets.push_back(actualOffset);
+
+    reduceShuffleStore->deleteJobjectKeys(env, pairs[i]);
   }
-  return 0;
+
+  env->SetIntArrayRegion(voffsetsArray, 0, actualNumKVPairs, valueOffsets.data());
+
+  return static_cast<int>(actualNumKVPairs);
 }
 
 /*
@@ -1785,23 +1947,51 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
   return 0;
 }
 
-
 /*
  * Class:     com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore
  * Method:    nGetSimpleKVPairs
  * Signature: (Ljava/nio/ByteBuffer;I[II)I
  */
 JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_nGetSimpleKVPairs
-(JNIEnv *env, jobject obj, jobject bytebuffer, jint buffer_capacity, jintArray voffsetsArray, jint knumbers){
+(JNIEnv *env, jobject obj, jlong ptrToReduceStore, jobjectArray okvalues, jobject byteBuffer,
+ jint buffer_capacity, jintArray voffsetsArray, jint knumbers){
+  ReduceShuffleStoreWithObjKeys* reduceShuffleStore =
+    reinterpret_cast<ReduceShuffleStoreWithObjKeys*> (ptrToReduceStore);
 
- {
-    const char *exClassName = "java/lang/UnsupportedOperationException";
-    jclass ecls = env->FindClass (exClassName);
-    if (ecls != NULL){
-      env->ThrowNew(ecls, "nstoreKVPairs for arbitrary <k,v> is not supported");
+  vector<ReduceKVPair> pairs {reduceShuffleStore->fetch(knumbers)};
+  int actualNumKVPairs = static_cast<int>(pairs.size());
+
+  // leverage laziness to save unnecessary deserialization.
+  if (reduceShuffleStore->isPassThrough()) {
+    auto start = chrono::system_clock::now();
+    shuffle::deserializeKeys(env, pairs);
+    auto end = chrono::system_clock::now();
+    chrono::duration<double> elapsed_s = end - start;
+    LOG(INFO) << "deserializing " << pairs.size() << " keys took " << elapsed_s.count() << "s";
+  }
+
+  byte* buffer = (byte*)env->GetDirectBufferAddress(byteBuffer);
+  int currentBufferSize {0};
+
+  vector<jint> valueOffsets;
+  int actualOffset {0};
+  for (int i=0; i<actualNumKVPairs; ++i) {
+    env->SetObjectArrayElement(okvalues, i, pairs[i].getKey());
+
+    int serValueSize = pairs[i].getSerValueSize();
+    if (currentBufferSize + serValueSize > buffer_capacity) {
+      throw length_error("direct buffer is almost full.");
     }
 
+    memcpy(buffer, pairs[i].getSerValue(), serValueSize);
+    buffer += serValueSize;
+
+    actualOffset += serValueSize;
+    valueOffsets.push_back(actualOffset);
   }
-  
-  return 0;
+  reduceShuffleStore->deleteJobjectKeys(env, pairs);
+
+  env->SetIntArrayRegion(voffsetsArray, 0, actualNumKVPairs, valueOffsets.data());
+
+  return static_cast<int>(actualNumKVPairs);
 }

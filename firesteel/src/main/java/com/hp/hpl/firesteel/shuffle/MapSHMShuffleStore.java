@@ -186,12 +186,21 @@ public class MapSHMShuffleStore implements MapShuffleStore {
     private float fkvalues[] = null; 
     private long  lkvalues[]  = null; 
     private String skvalues[] = null; 
+    private Object okvalues[] = null;
+    private int okhashes[] = null;
     //for string length
     private int slkvalues[]=null; 
     
     //add key ordering specification for the map/reduce shuffle store
     private boolean ordering; 
-    
+
+    // enable JNI callbacks by the flag.
+    private boolean enableJniCallback = false;
+    public void setEnableJniCallback(boolean doJniCallback) {
+        this.enableJniCallback = doJniCallback;
+        LOG.info("Jni Callback: " + this.enableJniCallback);
+    }
+
     /**
      * to initialize the storage space for a particular shuffle stage's map instance
      * @param shuffleId the current stage id
@@ -243,7 +252,8 @@ public class MapSHMShuffleStore implements MapShuffleStore {
              //do nothing, as it will use koffsets and voffsets.                                                                                                       
          }
          else if (keyType == ShuffleDataModel.KValueTypeId.Object){
-        	 throw new UnsupportedOperationException ( "key type: " + keyType + " is not supported");                                                                                                      
+             this.okvalues = new Object[this.sizeOfBatchSerialization];
+             this.okhashes = new int[this.sizeOfBatchSerialization];
          }
          else {
             throw new UnsupportedOperationException ( "key type: " + keyType + " is not supported");
@@ -366,9 +376,14 @@ public class MapSHMShuffleStore implements MapShuffleStore {
      
      //for key = object, value = object
      public void serializeVObject (Object kvalue, Object vvalue, int partitionId, int indexPosition) {
-         throw new RuntimeException ("serialize V for Object value is not implemented");
+        this.okvalues[indexPosition] = kvalue;
+        this.okhashes[indexPosition] = kvalue.hashCode();
+        this.npartitions[indexPosition] = partitionId;
+        this.serializer.writeObject(vvalue);
+        ByteBuffer currentVBuf = this.serializer.getByteBuffer();
+        this.voffsets[indexPosition]= currentVBuf.position();
      }
-     
+
      @Override 
      public void serializeKVPair (Object kvalue, Object vvalue, int partitionId, int indexPosition, int scode) {
           //rely on Java to generate fast switch statement. 
@@ -422,15 +437,37 @@ public class MapSHMShuffleStore implements MapShuffleStore {
    	    case 5:
    	    	 storeKVPairsWithByteArrayKeys (numberOfPairs);
    	    	 break;
-   	    case 6:
-   	    	throw new RuntimeException ("key type of arbitrary object is not implemented"); 
-   	    	 //break;
+            case 6:
+                // If JNI map/reduce disabled,
+                // we store serialized records later.
+                if (this.enableJniCallback) {
+                    copyToNativeStore(numberOfPairs);
+                }
+                break;
    	    default: 
    	    	throw new RuntimeException ("unknown key type is encountered");
    	    
    	  }
      }
-     
+    
+
+    /**
+     * Copy arbitrary key-value pairs to the native map-side store.
+     * @param numPairs The number of pairs to be transfer to the native store.
+     */
+    private void copyToNativeStore(int numPairs) {
+        this.serializer.init();
+
+        ByteBuffer holder = this.serializer.getByteBuffer();
+        nCopyToNativeStore(this.pointerToStore, holder, this.voffsets,
+                           this.okvalues, this.okhashes, this.npartitions, numPairs);
+
+        this.serializer.init();
+    }
+
+    private native void nCopyToNativeStore (long ptrToStore, ByteBuffer holder, int[] voffsets,
+                                            Object[] okvalues, int[] okhashes, int[] partitions, int numPairs);
+
     //Special case: to store the (K,V) pairs that have the K values to be with type of Integer
     public void storeKVPairsWithIntKeys (int numberOfPairs) {
         //NOTE: this byte buffer my be re-sized during serialization.
@@ -673,6 +710,22 @@ public class MapSHMShuffleStore implements MapShuffleStore {
      */
     private native void nsortAndStore (long ptrToStore, 
                                        int totalNumberOfPartitions,  ShuffleDataModel.MapStatus mapStatus);
+
+    /**
+     * Write partitioned and sorted records into the GlobalHeap.
+     * The records must to be serialized and contained in DirectBuffer to use in JNI.
+     **/
+    public ShuffleDataModel.MapStatus writeToHeap(ByteBuffer buff, int[] sizes) {
+        ShuffleDataModel.MapStatus status = new ShuffleDataModel.MapStatus();
+        nwriteToHeap(this.pointerToStore, this.numberOfPartitions, sizes, buff, status);
+        return status;
+    }
+
+    private native void nwriteToHeap(long ptrToStore,
+                                     int totalNumberOfPartitions,
+                                     int[] partitionLengths,
+                                     ByteBuffer holder,
+                                     ShuffleDataModel.MapStatus mapStatus);
 
     /**
      * to query what is the K value type used in this shuffle store

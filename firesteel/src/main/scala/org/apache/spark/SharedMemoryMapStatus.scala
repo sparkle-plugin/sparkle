@@ -33,6 +33,8 @@ trait SharedMemoryAttributes {
   /*to retrieve the chunk offset associated with the map task*/
   def chunkOffset: Long
 
+  // Whether key type is primitive or not.
+  def isPrimitiveKey: Boolean
 }
 
 /**
@@ -44,32 +46,38 @@ class SharedMemoryCompressedMapStatus(
     private[this] var loc: BlockManagerId,
     private[this] var compressedSizes: Array[Byte],
     private[this] var _regionId: Long,
-    private[this] var _chunkOffset: Long) extends CompressedMapStatus(loc, compressedSizes)
+    private[this] var _chunkOffset: Long,
+  private[this] var _isPrimitiveKey: Boolean) extends CompressedMapStatus(loc, compressedSizes)
                                           with SharedMemoryAttributes {
 
   def this(
       loc: BlockManagerId,
       uncompressedSize: Array[Long],
       regionId: Long,
-      chunkOffset: Long) =
-    this(loc, uncompressedSize.map(MapStatus.compressSize), regionId, chunkOffset)
+      chunkOffset: Long,
+      isPrimitiveKey: Boolean) =
+    this(loc, uncompressedSize.map(MapStatus.compressSize), regionId, chunkOffset, isPrimitiveKey)
 
-  protected def this() = this(null, null.asInstanceOf[Array[Byte]], 0L, 0L)
+  protected def this() = this(null, null.asInstanceOf[Array[Byte]], 0L, 0L, false)
 
   override def regionId: Long = _regionId
 
   override def chunkOffset: Long = _chunkOffset
 
+  override def isPrimitiveKey: Boolean = _isPrimitiveKey
+
   override def writeExternal(out: ObjectOutput): Unit = Utils.tryOrIOException {
     super.writeExternal(out)
     out.writeLong(_regionId)
     out.writeLong(_chunkOffset)
+    out.writeBoolean(_isPrimitiveKey)
   }
 
   override def readExternal(in: ObjectInput): Unit = Utils.tryOrIOException {
     super.readExternal(in)
     _regionId = in.readLong()
     _chunkOffset = in.readLong()
+    _isPrimitiveKey = in.readBoolean()
   }
 }
 
@@ -80,21 +88,22 @@ class SharedMemoryHighlyCompressedMapStatus(
     private[this] var emptyBlocks: RoaringBitmap,
     private[this] var avgSize: Long, 
     private[this] var _regionId: Long,
-    private[this] var _chunkOffset: Long) 
+    private[this] var _chunkOffset: Long,
+    private[this] var _isPrimitiveKey: Boolean)
     extends HighlyCompressedMapStatus 
     with SharedMemoryAttributes {
-
 
   // loc could be null when the default constructor is called during deserialization
   require(loc == null || avgSize > 0 || numNonEmptyBlocks == 0,
      "Average size can only be zero for map stages that produced no output")
 
-  protected def this() = this(null, -1, null, -1, 0L, 0L)
+  protected def this() = this(null, -1, null, -1, 0L, 0L, false)
 
   override def regionId: Long = _regionId
 
   override def chunkOffset: Long = _chunkOffset
 
+  override def isPrimitiveKey: Boolean = _isPrimitiveKey
 
   override def location: BlockManagerId = loc
 
@@ -113,6 +122,7 @@ class SharedMemoryHighlyCompressedMapStatus(
 
     out.writeLong(_regionId)
     out.writeLong(_chunkOffset)
+    out.writeBoolean(_isPrimitiveKey)
   }
 
   override def readExternal(in: ObjectInput): Unit = Utils.tryOrIOException {
@@ -123,6 +133,7 @@ class SharedMemoryHighlyCompressedMapStatus(
 
     _regionId = in.readLong()
     _chunkOffset = in.readLong()
+    _isPrimitiveKey = in.readBoolean()
   }
 }
 
@@ -132,15 +143,15 @@ object SharedMemoryMapStatus extends Logging {
       loc: BlockManagerId,
       uncompressedSizes: Array[Long],
       regionId: Long,
-      chunkOffset: Long): MapStatus = {
+      chunkOffset: Long,
+      isPrimitiveKey: Boolean): MapStatus = {
     if (uncompressedSizes.length > 2000) {
       //logInfo ("map bucket size is: " +
       //    uncompressedSizes.length + " with highly compressed map status chosen")
-      SharedMemoryHighlyCompressedMapStatus(loc, uncompressedSizes, regionId, chunkOffset)
+      SharedMemoryHighlyCompressedMapStatus(loc, uncompressedSizes, regionId, chunkOffset, isPrimitiveKey)
     } else  {
-      SharedMemoryCompressedMapStatus(loc, uncompressedSizes, regionId, chunkOffset)
+      SharedMemoryCompressedMapStatus(loc, uncompressedSizes, regionId, chunkOffset, isPrimitiveKey)
     }
-      
   }
 }
 
@@ -149,8 +160,9 @@ object SharedMemoryCompressedMapStatus {
       loc: BlockManagerId,
       uncompressedSizes: Array[Long],
       regionId: Long,
-      chunkOffset: Long): MapStatus = {
-    new SharedMemoryCompressedMapStatus(loc, uncompressedSizes, regionId, chunkOffset)
+      chunkOffset: Long,
+      isPrimitiveKey: Boolean): MapStatus = {
+    new SharedMemoryCompressedMapStatus(loc, uncompressedSizes, regionId, chunkOffset, isPrimitiveKey)
   }
 }
 
@@ -161,7 +173,8 @@ object SharedMemoryHighlyCompressedMapStatus {
       loc: BlockManagerId,
       uncompressedSizes: Array[Long],
       regionId: Long,
-      chunkOffset: Long): MapStatus = {
+      chunkOffset: Long,
+      isPrimitiveKey: Boolean): MapStatus = {
 
       // We must keep track of which blocks are empty so that we don't report a zero-sized
       // block as being non-empty (or vice-versa) when using the average block size.
@@ -193,6 +206,6 @@ object SharedMemoryHighlyCompressedMapStatus {
       emptyBlocks.runOptimize()
 
       new SharedMemoryHighlyCompressedMapStatus(
-             loc, numNonEmptyBlocks,emptyBlocks, avgSize, regionId, chunkOffset)
+             loc, numNonEmptyBlocks,emptyBlocks, avgSize, regionId, chunkOffset, isPrimitiveKey)
   }
 }
