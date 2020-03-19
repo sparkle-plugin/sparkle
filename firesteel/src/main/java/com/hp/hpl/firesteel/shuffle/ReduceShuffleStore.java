@@ -107,10 +107,12 @@ public interface ReduceShuffleStore {
          *                 side will have the value combiner to combine the multi-v-values.
          * @param knumbers the specified number of K values to be retrieved in bulk, by the reducer
          *                 upper layer.
+         * @param numRawPairs before aggregation. This arr length is always 1.
          * @return the actual key/value pairs that are available (it can be the last processing
          * batch.
          */
-        int getKVPairs (ArrayList<Object> kvalues, ArrayList<ArrayList<Object>> vvalues, int knumbers);
+    int getKVPairs (ArrayList<Object> kvalues, ArrayList<ArrayList<Object>> vvalues, int knumbers,
+                    int[] numRawPairs);
 
         /**
          * for special arbitrary Key, to retrieve  key/value pairs.

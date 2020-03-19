@@ -59,14 +59,14 @@ KVPairLoader::load(int reducerId) {
       int size; // in bytes.
       memcpy(&size, index, sizeof(int));
       index += sizeof(int);
+      if (size <= 0) {
+        continue; // skip empty data chunks.
+      }
 
       int numPair; // # of pairs in this chunk.
       memcpy(&numPair, index, sizeof(int));
       index += sizeof(int);
 
-      if (size == 0) {
-        continue; // skip empty data chunks.
-      }
       isLocalDataChunk.emplace_back(numa == currentNumaNode);
       dataChunkPtrs.emplace_back(rid, roffset);
       numPairs.emplace_back(numPair);

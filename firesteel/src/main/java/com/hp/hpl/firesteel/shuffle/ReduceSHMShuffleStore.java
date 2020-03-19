@@ -125,7 +125,9 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
     private boolean enableJniCallback = false;
     public void setEnableJniCallback(boolean doJniCallback) {
         this.enableJniCallback = doJniCallback;
-        LOG.info("Jni Callback: " + this.enableJniCallback);
+    }
+    public boolean getEnableJniCallback() {
+        return this.enableJniCallback;
     }
 
     private int numFetchedKvPairs = 0; // from kvPairBuffer or kvPairMap.
@@ -362,9 +364,10 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
     private native byte[] ngetVValueType(long ptrToStore);
 
     @Override
-    public int getKVPairs (ArrayList<Object> kvalues, ArrayList<ArrayList<Object>> vvalues, int knumbers) {
+    public int getKVPairs (ArrayList<Object> kvalues, ArrayList<ArrayList<Object>> vvalues, int knumbers,
+                           int[] numRawPairs) {
         if (!this.enableJniCallback) {
-            return hashMapDirectBuffer(kvalues, vvalues, knumbers);
+            return hashMapDirectBuffer(kvalues, vvalues, knumbers, numRawPairs);
         }
 
         // prep key holders and value offsets in the direct buffer.
@@ -506,15 +509,19 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
         return numReadPairs;
     }
 
-    private int hashMapDirectBuffer(ArrayList<Object> kvalues, ArrayList<ArrayList<Object>> vvalues, int knumbers) {
+    private int hashMapDirectBuffer(ArrayList<Object> kvalues, ArrayList<ArrayList<Object>> vvalues,
+                                    int knumbers, int[] numRawPairs) {
         // initialize the Reducer.
         if (this.numFetchedKvPairs == 0) {
             ByteBufferInput in = new ByteBufferInput(this.byteBuffer);
+            int numPairsRead = 0;
             while (this.byteBuffer.hasRemaining()) {
                 Object key = this.kryo.readClassAndObject(in);
                 kvPairMap.putIfAbsent(key, new ArrayList<>());
                 kvPairMap.get(key).add(this.kryo.readClassAndObject(in));
+                numPairsRead++;
             }
+            numRawPairs[0] = numPairsRead;
             this.byteBuffer.clear();
 
             kvPairMapKeys = kvPairMap.keySet().toArray();
