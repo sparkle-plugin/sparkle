@@ -35,7 +35,7 @@ ReduceShuffleStoreLike::load(byte* buffer, int reducerId, ReduceStatus& status) 
     memcpy(&bucketSize, offset, sizeof(int));
     offset += sizeof(int);
 
-    if (bucketSize == 0) {
+    if (bucketSize <= 0) {
       continue;
     }
 
