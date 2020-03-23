@@ -18,11 +18,10 @@ version := "2.0"
 
 scalaVersion := "2.11.12"
 
-libraryDependencies += "org.apache.spark" %% "spark-core" % "2.4.0"
+libraryDependencies += "org.apache.spark" %% "spark-core" % "2.4.1"
 
-libraryDependencies += "org.scalatest" % "scalatest_2.11" % "2.2.1"
+libraryDependencies += "org.scalatest" % "scalatest_2.11" % "3.0.3"
 
 resolvers += Resolver.mavenLocal
 
 resolvers += "Akka Repository" at "http://repo.akka.io/releases/"
-

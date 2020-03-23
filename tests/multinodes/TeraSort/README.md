@@ -17,7 +17,7 @@
     to the sub-directory "spark-terasort"
 
 (2) to compile the terasort code: 
-    mvn -Dhadoop.version=2.4.0 clean package 
+    mvn -Dhadoop.version=2.4.1 clean package 
 
 
 (3) make sure that the shared-memory has been created by ALPS tool, for example
