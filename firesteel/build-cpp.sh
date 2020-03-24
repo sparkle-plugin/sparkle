@@ -26,8 +26,7 @@ if [ ! -d ${BUILD_DIR} ]; then
 fi
 cd ${BUILD_DIR}
 cmake ${FIRESTEEL_ROOT}
-make clean
-make
+make -j 2
 ## the shared libraries not JNI related are pushed to /usr/local/lib, which requires sudo.
 sudo make install 
 ret=$? 

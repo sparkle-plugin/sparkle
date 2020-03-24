@@ -1,352 +1,358 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
- ~ (c) Copyright 2016 Hewlett Packard Enterprise Development LP
- ~
- ~ Licensed under the Apache License, Version 2.0 (the "License");
- ~ you may not use this file except in compliance with the License.
- ~ You may obtain a copy of the License at
- ~
- ~     http://www.apache.org/licenses/LICENSE-2.0
- ~
- ~ Unless required by applicable law or agreed to in writing, software
- ~ distributed under the License is distributed on an "AS IS" BASIS,
- ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- ~ See the License for the specific language governing permissions and
- ~ limitations under the License. 
- -->
+~ (c) Copyright 2016 Hewlett Packard Enterprise Development LP
+~
+~ Licensed under the Apache License, Version 2.0 (the "License");
+~ you may not use this file except in compliance with the License.
+~ You may obtain a copy of the License at
+~
+~     http://www.apache.org/licenses/LICENSE-2.0
+~
+~ Unless required by applicable law or agreed to in writing, software
+~ distributed under the License is distributed on an "AS IS" BASIS,
+~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+~ See the License for the specific language governing permissions and
+~ limitations under the License. 
+-->
 
 <project
-	xmlns="http://maven.apache.org/POM/4.0.0"
-	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
-	<modelVersion>4.0.0</modelVersion>
-	<groupId>com.hp.hpl</groupId>
-	<artifactId>firesteel</artifactId>
-	<packaging>jar</packaging>
-	<version>2.4.1</version>
-	<name>HP Labs Project Fire Steel</name>
+xmlns="http://maven.apache.org/POM/4.0.0"
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+<modelVersion>4.0.0</modelVersion>
+<groupId>com.hp.hpl</groupId>
+<artifactId>firesteel</artifactId>
+<packaging>jar</packaging>
+<version>2.4.1</version>
+<name>HP Labs Project Fire Steel</name>
 
-	<properties>
-	        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<maven.compiler.target>1.8</maven.compiler.target>
-		<maven.compiler.source>1.8</maven.compiler.source>
-                <scala.version>2.11.12</scala.version>
-                <scala.binary.version>2.11</scala.binary.version>
-                <spark.version>2.4.1</spark.version>
+<properties>
+  <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  <maven.compiler.target>1.8</maven.compiler.target>
+  <maven.compiler.source>1.8</maven.compiler.source>
+  <scala.version>2.11.12</scala.version>
+  <scala.binary.version>2.11</scala.binary.version>
+  <spark.version>2.4.1</spark.version>
   <slf4j.version>1.7.16</slf4j.version>
-                <log4j.version>1.2.17</log4j.version>
-  <kryo.version>4.0.2</kryo.version>
-                <scala.tools.version>2.11</scala.tools.version>
-                <avro.mapred.classifier>hadoop2</avro.mapred.classifier>
-                <orbit.version>3.0.0.v201112011016</orbit.version>
-                <mesos.version>0.21.1</mesos.version>
-                <mesos.classifier>shaded-protobuf</mesos.classifier>
-                <oro.version>2.0.8</oro.version>
+  <log4j.version>1.2.17</log4j.version>
+  <chill.version>0.9.3</chill.version>
+  <scala.tools.version>2.11</scala.tools.version>
 
   <junit.version>4.12</junit.version>
   <scalatest.version>3.0.7</scalatest.version>
 
   <maven.compiler.plugin.version>3.7.0</maven.compiler.plugin.version>
-                <antrun.plugin.version>1.8</antrun.plugin.version>
-		<scala.plugin.version>2.14.2</scala.plugin.version>
+  <maven.clean.plugin.version>3.0.0</maven.clean.plugin.version>
+  <antrun.plugin.version>1.8</antrun.plugin.version>
   <maven.scala.plugin.version>3.2.2</maven.scala.plugin.version>
   <surefire.plugin.version>2.22.0</surefire.plugin.version>
   <scalatest.plugin.version>1.0</scalatest.plugin.version>
   <jar.plugin.version>3.0.2</jar.plugin.version>
-                <MaxPermGen>512m</MaxPermGen>
-                <!--by default, skip tests. to run the tests, issue in mvn: -DskipTests=false -->
-                <!--<skipTests>true</skipTests> -->
-	</properties>
+  <!--by default, skip tests. to run the tests, issue in mvn: -DskipTests=false -->
+  <!--<skipTests>true</skipTests> -->
+</properties>
 
-    <repositories>
-        <repository>
-            <id>central</id>
-            <!-- This should be at top, it makes maven try the central repo first and then others and hence faster dep resolution -->
-            <name>Maven Repository</name>
-            <url>https://repo1.maven.org/maven2</url>
-            <releases>
-                <enabled>true</enabled>
-            </releases>
-            <snapshots>
-                <enabled>false</enabled>
-            </snapshots>
-        </repository>
-    </repositories>
-    
-    <dependencies>  
-        <!-- the spark core runtime and its pom.xml installed in local repository-->
-        <dependency>  
-            <groupId>org.apache.spark</groupId>  
-            <artifactId>spark-core_${scala.binary.version}</artifactId>  
-            <version>${spark.version}</version>
-        </dependency> 
+<repositories>
+  <repository>
+    <id>central</id>
+    <!-- This should be at top, it makes maven try the central repo first and then others and hence faster dep resolution -->
+    <name>Maven Repository</name>
+    <url>https://repo1.maven.org/maven2</url>
+    <releases>
+      <enabled>true</enabled>
+    </releases>
+    <snapshots>
+      <enabled>false</enabled>
+    </snapshots>
+  </repository>
+</repositories>
 
-        <!-- this is the dependent networking library installed in the local repository-->
+<dependencies>
+  <!-- the spark core runtime and its pom.xml installed in local repository-->
+  <dependency>
+    <groupId>org.apache.spark</groupId>
+    <artifactId>spark-core_${scala.binary.version}</artifactId>
+    <version>${spark.version}</version>
+    <scope>provided</scope>
+  </dependency>
 
-        <dependency>  
-            <groupId>org.scala-lang</groupId>  
-            <artifactId>scala-library</artifactId>  
-            <version>${scala.version}</version>  
-        </dependency> 
+  <!-- this is the dependent networking library installed in the local repository-->
 
-        <!-- Test -->
-        <dependency>
-            <groupId>junit</groupId>
-            <artifactId>junit</artifactId>
+  <dependency>
+    <groupId>org.scala-lang</groupId>
+    <artifactId>scala-library</artifactId>
+    <version>${scala.version}</version>
+    <scope>provided</scope>
+  </dependency>
+
+  <!-- Test -->
+  <dependency>
+    <groupId>junit</groupId>
+    <artifactId>junit</artifactId>
     <version>${junit.version}</version>
-            <scope>test</scope>
-        </dependency>
+    <scope>test</scope>
+  </dependency>
 
-        <dependency>
-          <groupId>org.scalatest</groupId>
-          <artifactId>scalatest_${scala.tools.version}</artifactId>
+  <dependency>
+    <groupId>org.scalatest</groupId>
+    <artifactId>scalatest_${scala.tools.version}</artifactId>
     <version>${scalatest.version}</version>
-          <scope>test</scope>
-        </dependency>
+    <scope>test</scope>
+  </dependency>
 
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-            <version>${slf4j.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>jul-to-slf4j</artifactId>
-            <version>${slf4j.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>jcl-over-slf4j</artifactId>
-           <version>${slf4j.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>log4j</groupId>
-            <artifactId>log4j</artifactId>
-            <version>${log4j.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-log4j12</artifactId>
-            <version>${slf4j.version}</version>
-        </dependency>
+  <dependency>
+    <groupId>org.slf4j</groupId>
+    <artifactId>slf4j-api</artifactId>
+    <version>${slf4j.version}</version>
+    <scope>provided</scope>
+  </dependency>
+  <dependency>
+    <groupId>org.slf4j</groupId>
+    <artifactId>jul-to-slf4j</artifactId>
+    <version>${slf4j.version}</version>
+    <scope>provided</scope>
+  </dependency>
+  <dependency>
+    <groupId>org.slf4j</groupId>
+    <artifactId>jcl-over-slf4j</artifactId>
+    <version>${slf4j.version}</version>
+    <scope>provided</scope>
+  </dependency>
+  <dependency>
+    <groupId>org.slf4j</groupId>
+    <artifactId>slf4j-log4j12</artifactId>
+    <version>${slf4j.version}</version>
+    <scope>provided</scope>
+  </dependency>
+  <dependency>
+    <groupId>log4j</groupId>
+    <artifactId>log4j</artifactId>
+    <version>${log4j.version}</version>
+    <scope>provided</scope>
+  </dependency>
 
-        <dependency>
-            <groupId>com.esotericsoftware</groupId>
-    <artifactId>kryo-shaded</artifactId>
-            <version>${kryo.version}</version>
-        </dependency>
-    </dependencies>  
-    
-	<build>
-	 <plugins>
-           <plugin>  
-                <groupId>org.scala-tools</groupId>  
-                <artifactId>maven-scala-plugin</artifactId>  
-                <version>${scala.plugin.version}</version>  
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>compile</goal>
-                         <!--   <goal>testCompile</goal> -->
-                        </goals>
-		    </execution>
-                </executions>
-            </plugin>  
+  <dependency>
+    <groupId>com.twitter</groupId>
+    <artifactId>chill_${scala.binary.version}</artifactId>
+    <version>${chill.version}</version>
+    <scope>provided</scope>
+  </dependency>
+  <dependency>
+    <groupId>com.twitter</groupId>
+    <artifactId>chill-java</artifactId>
+    <version>${chill.version}</version>
+    <scope>provided</scope>
+  </dependency>
 
-            <!-- the following plugin is copied from Spark 1.4, option is needed to suppress warnings from sun.misc.Unsafe usage -->
-            <plugin>
-               <groupId>net.alchim31.maven</groupId>
-               <artifactId>scala-maven-plugin</artifactId>
-               <version>${maven.scala.plugin.version}</version>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>compile</goal>
-                            <goal>testCompile</goal>
-                        </goals>
-		    </execution>
-                </executions>
-               <configuration>
-                 <javacArgs>
-                  <!-- This option is needed to suppress warnings from sun.misc.Unsafe usage -->
-                  <javacArg>-XDignore.symbol.file</javacArg>
-                 </javacArgs>
-               </configuration>
-           </plugin>
-       
-           <!-- the following plugin is copied from Spark 1.4, option is needed to suppress warnings from sun.misc.Unsafe usage -->
-           <plugin>
-               <groupId>org.apache.maven.plugins</groupId>
-               <artifactId>maven-compiler-plugin</artifactId>
+</dependencies>
+
+<build>
+  <plugins>
+    <!-- the following plugin is copied from Spark 1.4, option is needed to suppress warnings from sun.misc.Unsafe usage -->
+    <plugin>
+      <groupId>net.alchim31.maven</groupId>
+      <artifactId>scala-maven-plugin</artifactId>
+      <version>${maven.scala.plugin.version}</version>
+      <executions>
+        <execution>
+          <goals>
+            <goal>compile</goal>
+            <goal>testCompile</goal>
+          </goals>
+        </execution>
+      </executions>
+      <configuration>
+        <javacArgs>
+          <!-- This option is needed to suppress warnings from sun.misc.Unsafe usage -->
+          <javacArg>-XDignore.symbol.file</javacArg>
+        </javacArgs>
+      </configuration>
+    </plugin>
+
+    <!-- the following plugin is copied from Spark 1.4, option is needed to suppress warnings from sun.misc.Unsafe usage -->
+    <plugin>
+      <groupId>org.apache.maven.plugins</groupId>
+      <artifactId>maven-compiler-plugin</artifactId>
       <version>${maven.compiler.plugin.version}</version>
-               <configuration>
-                  <compilerArgs>
-                   <!-- This option is needed to suppress warnings from sun.misc.Unsafe usage -->
-                   <arg>-XDignore.symbol.file</arg>
-                  </compilerArgs>
-               </configuration>
-           </plugin>
+      <configuration>
+        <compilerArgs>
+          <!-- This option is needed to suppress warnings from sun.misc.Unsafe usage -->
+          <arg>-XDignore.symbol.file</arg>
+        </compilerArgs>
+      </configuration>
+    </plugin>
 
-            <plugin>
-              <artifactId>maven-assembly-plugin</artifactId>
-              <configuration>
-                <descriptorRefs>
-                  <descriptorRef>jar-with-dependencies</descriptorRef>
-                </descriptorRefs>
-              </configuration>
-            </plugin>
+    <plugin>
+      <artifactId>maven-assembly-plugin</artifactId>
+      <configuration>
+        <descriptorRefs>
+          <descriptorRef>jar-with-dependencies</descriptorRef>
+        </descriptorRefs>
+      </configuration>
+    </plugin>
 
-	    <plugin>
-		<artifactId>maven-antrun-plugin</artifactId>
-		<version>${antrun.plugin.version}</version>
-		<executions>
-		   <execution>
-		      <phase>process-classes</phase>
-		      <configuration>
-                       <skip>${maven.antrun.skip}</skip>
-		       <target
-					name="jni"
-					description="Generate headers and compile the native code">
-				<echo>Generating JNI headers</echo>
-				<!-- Does not work with OpenJDK, because Ant javah assumes Sun JVM
-				    		<javah
-						   destdir="${project.basedir}/src/main/c++"
-						   classpath="${project.build.outputDirectory}">
-						   <class name="ie.agisoft.Test"/>
-						</javah>
-				-->
-				<exec executable="javah" >
-					     <arg value="-d" />
-					     <arg value="${project.basedir}/src/main/cpp/jnishuffle" />
-					     <arg value="-classpath" />
-					     <arg value="${project.basedir}/src/main/java" />
-					     <arg value="-force" />
-					     <arg value="com.hp.hpl.firesteel.shuffle.MapSHMShuffleStore" />
-				</exec>
+    <plugin>
+      <artifactId>maven-antrun-plugin</artifactId>
+      <version>${antrun.plugin.version}</version>
+      <executions>
+        <execution>
+          <phase>process-classes</phase>
+          <configuration>
+            <skip>${maven.antrun.skip}</skip>
+            <target
+                name="jni"
+                description="Generate headers and compile the native code">
+              <echo>Generating JNI headers</echo>
+              <!-- Does not work with OpenJDK, because Ant javah assumes Sun JVM
+                   <javah
+                   destdir="${project.basedir}/src/main/c++"
+                   classpath="${project.build.outputDirectory}">
+                   <class name="ie.agisoft.Test"/>
+                   </javah>
+              -->
+              <exec executable="javah" >
+                <arg value="-d" />
+                <arg value="${project.basedir}/src/main/cpp/jnishuffle" />
+                <arg value="-classpath" />
+                <arg value="${project.basedir}/src/main/java" />
+                <arg value="-force" />
+                <arg value="com.hp.hpl.firesteel.shuffle.MapSHMShuffleStore" />
+              </exec>
 
-				<exec executable="javah" >
-					     <arg value="-d" />
-					     <arg value="${project.basedir}/src/main/cpp/jnishuffle" />
-					     <arg value="-classpath" />
-					     <arg value="${project.basedir}/src/main/java" />
-					     <arg value="-force" />
-					     <arg value="com.hp.hpl.firesteel.shuffle.ReduceSHMShuffleStore" />
-				</exec>
+              <exec executable="javah" >
+                <arg value="-d" />
+                <arg value="${project.basedir}/src/main/cpp/jnishuffle" />
+                <arg value="-classpath" />
+                <arg value="${project.basedir}/src/main/java" />
+                <arg value="-force" />
+                <arg value="com.hp.hpl.firesteel.shuffle.ReduceSHMShuffleStore" />
+              </exec>
 
-				<exec executable="javah" >
-					      <arg value="-d" />
-					      <arg value="${project.basedir}/src/main/cpp/jnishuffle" />
-				     	      <arg value="-classpath" />
-					      <arg value="${project.basedir}/src/main/java" />
-					      <arg value="-force" />
-				              <arg value="com.hp.hpl.firesteel.shuffle.ShuffleStoreManager" />
-				</exec>
+              <exec executable="javah" >
+                <arg value="-d" />
+                <arg value="${project.basedir}/src/main/cpp/jnishuffle" />
+                <arg value="-classpath" />
+                <arg value="${project.basedir}/src/main/java" />
+                <arg value="-force" />
+                <arg value="com.hp.hpl.firesteel.shuffle.ShuffleStoreManager" />
+              </exec>
 
-                                <exec executable="javah" >
-                                    <arg value="-d" />
-                                    <arg value="${project.basedir}/src/main/cpp/jnioffheapstore" />
-                                    <arg value="-classpath" />
-                                    <arg value="${project.basedir}/src/main/java" />
-                                    <arg value="-force" />
-                                    <arg value="com.hp.hpl.firesteel.offheapstore.OffHeapStore" />
-				</exec>
-				
-                                <!-- <exec executable="./build-cpp.sh" failonerror="true"> </exec> -->
-				<exec executable="./build-cpp.sh" failonerror="true"> </exec>
-		       </target>
-		      </configuration>
-		      <goals>
-				<goal>run</goal>
-		      </goals>
-		   </execution>
-		</executions>
-	       </plugin>
+              <exec executable="javah" >
+                <arg value="-d" />
+                <arg value="${project.basedir}/src/main/cpp/jnioffheapstore" />
+                <arg value="-classpath" />
+                <arg value="${project.basedir}/src/main/java" />
+                <arg value="-force" />
+                <arg value="com.hp.hpl.firesteel.offheapstore.OffHeapStore" />
+              </exec>
 
-             <plugin>
-                   <groupId>org.apache.maven.plugins</groupId>
-                   <artifactId>maven-surefire-plugin</artifactId>
-                   <version>${surefire.plugin.version}</version>
-                   <configuration>
-                         <argLine>-Xms16000m -Xmx16000m</argLine>
+              <!-- <exec executable="./build-cpp.sh" failonerror="true"> </exec> -->
+              <exec executable="./build-cpp.sh" failonerror="true"> </exec>
+            </target>
+          </configuration>
+          <goals>
+            <goal>run</goal>
+          </goals>
+        </execution>
+      </executions>
+    </plugin>
 
-                         <skipTests>true</skipTests>
-                         <!-- by default, Java tests are skipped. -->
-                         <!-- from mvn command to optionally turn on skipJavaTests-->
-                         <skipTests>${skipJavaTests}</skipTests>
+    <plugin>
+      <groupId>org.apache.maven.plugins</groupId>
+      <artifactId>maven-surefire-plugin</artifactId>
+      <version>${surefire.plugin.version}</version>
+      <configuration>
+        <argLine>-Xms16000m -Xmx16000m</argLine>
 
-                         <useFile>false</useFile>
+        <skipTests>true</skipTests>
+        <!-- by default, Java tests are skipped. -->
+        <!-- from mvn command to optionally turn on skipJavaTests-->
+        <skipTests>${skipJavaTests}</skipTests>
 
-                         <disableXmlReport>true</disableXmlReport>
-                         <!-- If you have classpath issue like NoDefClassError,... -->
-                         <!-- useManifestOnlyJar>false</useManifestOnlyJar -->
-                         <includes>
-                             <include>**/*Test.*</include>
-                             <include>**/*Suite.*</include>
-                         </includes>
-                    </configuration>
-             </plugin>
-             
-             <!-- The following is for scalatest. Note that scalatest is on only when surefire (java) is off 
-                  thus, by default, both java test and scala test is turned off using "skipTests" flag 
-                  To turn on either one of them, we will have to use:
-                   "-DskipJavaTests=true -DskipScalaTests=false"  at mvn command
-                  to turn on scala tests and at the same time suppress java tests.
+        <useFile>false</useFile>
 
-                  and to use:
-                   "-DskipJavaTests=false -DskipScalaTests=true" at mvn command 
-                  to turn on java tests and at the same time suppress scala tests
-             -->
-             <plugin>
-                <groupId>org.scalatest</groupId>
-                <artifactId>scalatest-maven-plugin</artifactId>
-                <version>${scalatest.plugin.version}</version>
-                <configuration>
-                  <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
-                  <junitxml>.</junitxml>
-                  <filereports>SparkTestSuite.txt</filereports>
-                  <argLine>-Xmx24g -XX:MaxPermSize=${MaxPermGen} -XX:ReservedCodeCacheSize=512m</argLine>
-                  <stderr/>
+        <disableXmlReport>true</disableXmlReport>
+        <!-- If you have classpath issue like NoDefClassError,... -->
+        <!-- useManifestOnlyJar>false</useManifestOnlyJar -->
+        <includes>
+          <include>**/*Test.*</include>
+          <include>**/*Suite.*</include>
+        </includes>
+      </configuration>
+    </plugin>
 
-                  <!-- by default, Scala tests are skipped. -->
-                  <!-- from mvn command to optionally turn on skipScalaTests-->
-                  <skipTests>true</skipTests>
-                  <skipTests>${skipScalaTests}</skipTests>
+    <!-- The following is for scalatest. Note that scalatest is on only when surefire (java) is off 
+         thus, by default, both java test and scala test is turned off using "skipTests" flag 
+         To turn on either one of them, we will have to use:
+         "-DskipJavaTests=true -DskipScalaTests=false"  at mvn command
+         to turn on scala tests and at the same time suppress java tests.
 
-                  <systemProperties>
-                    <java.awt.headless>true</java.awt.headless>
-                    <spark.test.home>${session.executionRootDirectory}</spark.test.home>
-                    <spark.testing>1</spark.testing>
-                    <spark.ui.enabled>false</spark.ui.enabled>
-                    <spark.ui.showConsoleProgress>false</spark.ui.showConsoleProgress>
-                    <spark.executor.extraClassPath>${test_classpath}</spark.executor.extraClassPath>
-                    <spark.driver.allowMultipleContexts>true</spark.driver.allowMultipleContexts>
-                  </systemProperties>
-                </configuration>
-                <executions>
-                    <execution>
-                      <id>test</id>
-                      <goals>
-                         <goal>test</goal>
-                     </goals>
-                </execution>
-               </executions>
-             </plugin>
-     
-             <!-- build tests to jar -->
-             <plugin>
-                 <groupId>org.apache.maven.plugins</groupId>
-                 <artifactId>maven-jar-plugin</artifactId>
-                 <version>${jar.plugin.version}</version>
-                 <executions>
-                    <execution>
-                    <goals>
-                      <goal>test-jar</goal>
-                    </goals>
-                    </execution>
-                 </executions>
-             </plugin>
+and to use:
+"-DskipJavaTests=false -DskipScalaTests=true" at mvn command 
+to turn on java tests and at the same time suppress scala tests
+    -->
+    <plugin>
+      <groupId>org.scalatest</groupId>
+      <artifactId>scalatest-maven-plugin</artifactId>
+      <version>${scalatest.plugin.version}</version>
+      <configuration>
+        <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
+        <junitxml>.</junitxml>
+        <filereports>SparkTestSuite.txt</filereports>
+        <argLine>-Xmx24g -XX:ReservedCodeCacheSize=512m</argLine>
+        <stderr/>
 
+        <!-- by default, Scala tests are skipped. -->
+        <!-- from mvn command to optionally turn on skipScalaTests-->
+        <skipTests>true</skipTests>
+        <skipTests>${skipScalaTests}</skipTests>
 
-	 </plugins>
-	</build>
+        <systemProperties>
+          <java.awt.headless>true</java.awt.headless>
+          <spark.test.home>${session.executionRootDirectory}</spark.test.home>
+          <spark.testing>1</spark.testing>
+          <spark.ui.enabled>false</spark.ui.enabled>
+          <spark.ui.showConsoleProgress>false</spark.ui.showConsoleProgress>
+          <spark.executor.extraClassPath>${test_classpath}</spark.executor.extraClassPath>
+          <spark.driver.allowMultipleContexts>true</spark.driver.allowMultipleContexts>
+        </systemProperties>
+      </configuration>
+      <executions>
+        <execution>
+          <id>test</id>
+          <goals>
+            <goal>test</goal>
+          </goals>
+        </execution>
+      </executions>
+    </plugin>
+
+    <!-- build tests to jar -->
+    <plugin>
+      <groupId>org.apache.maven.plugins</groupId>
+      <artifactId>maven-jar-plugin</artifactId>
+      <version>${jar.plugin.version}</version>
+      <executions>
+        <execution>
+          <goals>
+            <goal>test-jar</goal>
+          </goals>
+        </execution>
+      </executions>
+    </plugin>
+
+    <plugin>
+      <groupId>org.apache.maven.plugins</groupId>
+      <artifactId>maven-clean-plugin</artifactId>
+      <version>${maven.clean.plugin.version}</version>
+      <configuration>
+        <filesets>
+          <fileset>
+            <directory>build</directory>
+          </fileset>
+        </filesets>
+      </configuration>
+    </plugin>
+  </plugins>
+</build>
 </project>
