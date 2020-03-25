@@ -1,3 +1,4 @@
 [submodule "alps"]
-	path = alps
-	url = git@github.com:sparkle-plugin/alps.git
+           path = alps
+           url = https://github.com/sparkle-plugin/alps.git
+           branch = master
