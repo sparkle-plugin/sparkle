@@ -5,21 +5,17 @@
 # permissions.
 
 ---
-- hosts: 127.0.0.1
+- hosts: install_nodes
   connection: ssh
-#  remote_user: root
+  become: yes
+  remote_user: root
+  vars:
+    current_dir: ~/dependent-modules/
 
   tasks:
 
-    - name: Include variables from configuration file
-      include_vars: spark-vars.yml
+    - include: tasks/prereqs-install-debian.yml
+      when: ansible_os_family == 'Debian'
 
-    - name: Install applications
-      yum: name="{{item}}" state=latest
-      with_items: "{{applications_to_install}}"
-
-    - name: Install libraries
-      yum: name="{{item}}" state=latest
-      with_items: "{{libraries_to_install}}"
-
-
+    - include: tasks/prereqs-install-rhel.yml
+      when: ansible_os_family == 'RedHat'

@@ -2,6 +2,5 @@
 # Configuration file for Ansible installation of Spark4TM
 
 # List of machines where you want to install Spark4TM:
-[my_nodes]
-horton2
-
+[install_nodes]
+127.0.0.1

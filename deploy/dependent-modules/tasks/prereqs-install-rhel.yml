@@ -1,0 +1,19 @@
+# Install Spark-HPC pre-requisite software packages
+# NOTE: remote_user needs to be changed to the account
+# name you use to connect to the machines where you will
+# perform the install. This account needs to have sudo
+# permissions.
+
+    - name: Include variables from configuration file for RHEL
+      include_vars: vars/sparkle-vars-rhel.yml
+
+    - name: Add IUS Repository
+      yum: name="https://centos7.iuscommunity.org/ius-release.rpm"
+
+    - name: Install applications for RHEL
+      yum: name="{{item}}" state=latest update_cache=yes
+      with_items: "{{applications_to_install}}"
+
+    - name: Install libraries for RHEL
+      yum: name="{{item}}" state=latest update_cache=yes
+      with_items: "{{libraries_to_install}}"
