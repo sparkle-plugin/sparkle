@@ -130,10 +130,11 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsto
  * Signature: (J)V
  */
 JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nshutdown
-(JNIEnv *env , jobject obj, jlong shuffleStorePtr) {
+(JNIEnv *env , jobject obj, jlong shuffleStoreMgrPtr, jlong shuffleStorePtr) {
     //to stop the store, and reclaim the DRAM resource.
     GenericMapShuffleStore *shuffleStore = reinterpret_cast <GenericMapShuffleStore *> (shuffleStorePtr); 
-    shuffleStore->shutdown();
+    ShuffleStoreManager *shuffleStoreManager = reinterpret_cast <ShuffleStoreManager *> (shuffleStoreMgrPtr);
+    shuffleStoreManager->getMapShuffleStoreManager()->shutdownShuffleStore(shuffleStore);
 }
 
 

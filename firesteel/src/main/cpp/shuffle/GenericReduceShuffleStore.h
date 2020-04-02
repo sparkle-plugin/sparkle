@@ -43,6 +43,9 @@ class GenericReduceShuffleStore {
     virtual ~GenericReduceShuffleStore() {
       //do nothing
     }
+
+    int typeId {-1};
+    int shuffleId {-1};
 };
 
 

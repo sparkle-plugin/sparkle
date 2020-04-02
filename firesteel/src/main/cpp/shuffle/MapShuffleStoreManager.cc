@@ -84,6 +84,9 @@ GenericMapShuffleStore* MapShuffleStoreManager::createStore(int shuffleId, int i
           }    
      }
 
+     store->typeId = tid;
+     store->shuffleId = shuffleId;
+
      return store;        
 }
 
@@ -93,7 +96,25 @@ void MapShuffleStoreManager::stopShuffleStore (GenericMapShuffleStore *store){
 } 
 
 void MapShuffleStoreManager::shutdownShuffleStore (GenericMapShuffleStore *store){
+  DLOG(INFO) << "shutdowning MapStore: " << store->shuffleId;
   store->shutdown();
+
+  switch (store->typeId) {
+  case KValueTypeId::Int:
+    delete dynamic_cast<MapShuffleStoreWithIntKey*>(store);
+    break;
+  case KValueTypeId::Long:
+    delete dynamic_cast<MapShuffleStoreWithLongKey*>(store);
+    break;
+  case KValueTypeId::Object:
+    delete dynamic_cast<MapShuffleStoreWithObjKeys*>(store);
+    break;
+  default:
+    LOG(ERROR) << "Not Implemented Yet.";
+    break;
+  }
+
+  return;
 } 
 
 void MapShuffleStoreManager::initialize() {
@@ -108,5 +129,3 @@ void MapShuffleStoreManager::initialize() {
 void MapShuffleStoreManager::shutdown () {
    LOG(INFO) << "map shuffle store manage is shutdown";
 }
-
-

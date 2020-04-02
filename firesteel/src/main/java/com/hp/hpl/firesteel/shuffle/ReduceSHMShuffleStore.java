@@ -197,10 +197,10 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
     public void shutdown (){
         LOG.info("store id " + this.storeId + "reduce-side shared-memory based shuffle store shutdown with id:"
                          + this.shuffleId + "-" + this.reduceId);
-        nshutdown(this.pointerToStore);
+        nshutdown(this.shuffleStoreManager.getPointer(), this.pointerToStore);
     }
 
-    private native void nshutdown(long ptrToStore);
+    private native void nshutdown(long ptrToShuffleMgr, long ptrToStore);
 
  
     @Override
