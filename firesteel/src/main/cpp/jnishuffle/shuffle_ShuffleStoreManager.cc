@@ -33,6 +33,8 @@ JNIEXPORT jlong JNICALL Java_com_hp_hpl_firesteel_shuffle_ShuffleStoreManager_ni
     //need to initialize the store manager, which further trigger the initialization of other singleton objects.
     const char *string_val = env->GetStringUTFChars(globalHeapName, NULL);
     string heapName(string_val); 
+    env->ReleaseStringUTFChars(globalHeapName, string_val);
+
     ptr->initialize(heapName, executorId);
 
     long ptrValue = reinterpret_cast <long> (ptr);
