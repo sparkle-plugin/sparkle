@@ -1,0 +1,28 @@
+# Variables for Ansible installation of Spark4TM
+---
+
+applications_to_install:
+  - cmake
+  - emacs
+  - vim
+  - git
+  - python
+  - g++
+
+libraries_to_install:
+  - libgtest-dev
+  - libgoogle-glog-dev
+  - numactl
+  - libconfig-dev
+  - libattr1-dev
+  - libyaml-cpp-dev
+  - attr
+  - libtbb2
+  - libtbb-dev
+  - google-perftools
+  - libgoogle-perftools-dev
+  - libgoogle-perftools4
+  - python-dev
+  - bzip2
+  - libgflags-dev
+  - libboost-all-dev

@@ -1,15 +1,5 @@
 #!/bin/bash
-# Install pre-requisite software for Spark-HPC.
-
-set -e
-
-if [ -z "$JAVA_HOME" ] ; then
-	echo "Variable JAVA_HOME not set"; exit 1
-fi
-if [ ! -d "$JAVA_HOME" -o ! -x "$JAVA_HOME/bin/java" ] ; then
-	echo "Variable JAVA_HOME not correctly set" 1>&2
-	exit 1
-fi
+# Install pre-requisite software for sparkle.
 
 # Fix tcmalloc symlink
 # Find file or symlink .../libtcmalloc.so.NNN (with NNN an int)
@@ -40,22 +30,4 @@ else
 fi
 }
 
-PARMS="--extra-vars '{java_home: ${JAVA_HOME}}'"
-
-
-INVENTORY=../virtualnode/playbooks/inventory.yml
-[ -f "$INVENTORY" ]
-
-if [ -f /etc/redhat-release ] 
-then
-	ansible-playbook -b --extra-vars "{\"java_home\": \"${JAVA_HOME}\"}" -i "$INVENTORY" prereqs-install.yml
-else
-	echo "ERROR: /etc/redhat-release not found" 1>&2
-	exit 1
-fi
-
 fix_tcmalloc
-
-
-
-

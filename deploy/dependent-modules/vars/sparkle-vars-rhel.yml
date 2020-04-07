@@ -29,5 +29,5 @@ libraries_to_install:
   - python-devel
   - bzip2-devel
   - gflags-devel
-
-
+  - boost169
+  - boost169-devel
