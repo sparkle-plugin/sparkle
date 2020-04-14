@@ -40,6 +40,9 @@ class GenericMapShuffleStore {
     virtual ~GenericMapShuffleStore() {
       //do nothing
     }
+
+    int typeId {-1};
+    int shuffleId {-1};
 };
 
 

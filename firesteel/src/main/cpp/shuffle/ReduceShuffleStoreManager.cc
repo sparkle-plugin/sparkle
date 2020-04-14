@@ -170,19 +170,34 @@ GenericReduceShuffleStore* ReduceShuffleStoreManager::createStore(int shuffleId,
           } 
     }
 
+    store->shuffleId = shuffleId;
+    store->typeId = tid;
+
     return store;
 }
 
 
 void ReduceShuffleStoreManager::stopShuffleStore(GenericReduceShuffleStore *store) {
-  if (store != nullptr) {
-      store->stop();
-  }
+  store->stop();
 }
 
 void ReduceShuffleStoreManager::shutdownShuffleStore(GenericReduceShuffleStore *store) {
-  if (store != nullptr) {
-      store->shutdown();
+  DLOG(INFO) << "delete ReduceShuffleStore: " << store->shuffleId;
+  store->shutdown();
+
+  switch (store->typeId) {
+  case KValueTypeId::Int:
+    delete dynamic_cast<ReduceShuffleStoreWithIntKey*>(store);
+    break;
+  case KValueTypeId::Long:
+    delete dynamic_cast<ReduceShuffleStoreWithLongKey*>(store);
+    break;
+  case KValueTypeId::Object:
+    delete dynamic_cast<ReduceShuffleStoreWithObjKeys*>(store);
+    break;
+  default:
+    LOG(ERROR) << "Not Implemented Yet.";
+    break;
   }
 }
 

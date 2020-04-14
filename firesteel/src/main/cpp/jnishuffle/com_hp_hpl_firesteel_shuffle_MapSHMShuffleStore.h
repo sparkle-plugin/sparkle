@@ -26,10 +26,10 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsto
 /*
  * Class:     com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore
  * Method:    nshutdown
- * Signature: (J)V
+ * Signature: (JJ)V
  */
 JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nshutdown
-  (JNIEnv *, jobject, jlong);
+  (JNIEnv *, jobject, jlong, jlong);
 
 /*
  * Class:     com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore

@@ -171,7 +171,7 @@ public class ShuffleStoreManager {
     	ArrayList<MapSHMShuffleStore> retrievedStores = this.shuffleStoreTracker.getMapShuffleStores(shuffleId);
     	if (retrievedStores != null) {
     	   for(MapSHMShuffleStore store: retrievedStores) {
-    		 store.shutdown();
+	       store.shutdown();
     	   }
     	   //remove the entry for shuffle id
     	   this.shuffleStoreTracker.removeMapShuffelStores(shuffleId);

@@ -64,9 +64,10 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
  * Signature: (JII)V
  */
 JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_nshutdown
-(JNIEnv *env, jobject obj, jlong shuffleStorePtr) {
+(JNIEnv *env, jobject obj, jlong ptrToShuffleManager, jlong shuffleStorePtr) {
   GenericReduceShuffleStore *shuffleStore = reinterpret_cast <GenericReduceShuffleStore *> (shuffleStorePtr);
-  shuffleStore->shutdown();
+  ShuffleStoreManager *shuffleStoreManager = reinterpret_cast <ShuffleStoreManager *> (ptrToShuffleManager);
+  shuffleStoreManager->getReduceShuffleStoreManager()->shutdownShuffleStore(shuffleStore);
 }
 
 

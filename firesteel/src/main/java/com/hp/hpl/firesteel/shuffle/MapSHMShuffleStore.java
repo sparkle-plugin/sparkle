@@ -302,17 +302,15 @@ public class MapSHMShuffleStore implements MapShuffleStore {
 
     /**
      * to shutdown the session and reclaim the NVM resources required for shuffling this map task.
-     *
-     * NOTE: who will issue this shutdown at what time
      */
     @Override
     public void shutdown() {
         LOG.info( "store id " + this.storeId + " map-side shared-memory based shuffle store shutdown with id:"
                     + this.shuffleId + "-" + this.mapTaskId);
-        nshutdown(this.pointerToStore);
+        nshutdown(this.shuffleStoreManager.getPointer(), this.pointerToStore);
     }
 
-    private native void nshutdown(long ptrToStore);
+    private native void nshutdown(long ptrToMgr, long ptrToStore);
 
     //for key = int, value = object 
     protected  void serializeVInt (int kvalue, Object vvalue, int partitionId, int indexPosition) {

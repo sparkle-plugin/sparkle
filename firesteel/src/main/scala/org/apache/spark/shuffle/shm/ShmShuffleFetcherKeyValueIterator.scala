@@ -295,6 +295,7 @@ private[spark] class ShmShuffleFetcherKeyValueIterator
         //this is the end of the fetching. we need to stop our store to release DRAM resource
         //the shutdown to release NVM resource need to wait until the stage shutdown
         reduceShuffleStore.stop()
+	reduceShuffleStore.shutdown()
 
       }
       //right after the fetch
