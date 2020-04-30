@@ -17,22 +17,29 @@
 
 package com.hp.hpl.firesteel.shuffle;
 
-import com.esotericsoftware.kryo.Kryo;
-import com.esotericsoftware.kryo.io.ByteBufferOutput;
-import com.esotericsoftware.kryo.io.ByteBufferInput;
-import java.nio.ByteBuffer;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import scala.Tuple2;
-
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.Comparator;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.nio.ByteBuffer;
+
+import scala.Tuple2;
+import scala.collection.Iterator;
+
+import org.apache.spark.util.ByteBufferInputStream;
+import org.apache.spark.serializer.Serializer;
+import org.apache.spark.serializer.SerializerInstance;
+import org.apache.spark.sql.execution.UnsafeRowSerializerInstance;
+
+import com.esotericsoftware.kryo.Kryo;
+import com.esotericsoftware.kryo.io.ByteBufferInput;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.hp.hpl.firesteel.shuffle.ShuffleDataModel.MergeSortedResult;
 
 public class ReduceSHMShuffleStore implements ReduceShuffleStore {
     private static final Logger LOG=LoggerFactory.getLogger(ReduceSHMShuffleStore.class.getName());
@@ -128,6 +135,12 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
     }
     public boolean getEnableJniCallback() {
         return this.enableJniCallback;
+    }
+
+    public boolean isUnsafeRow = false;
+    private SerializerInstance unsafeRowSerializer = null;
+    public void setUnsafeRowSerializer(Serializer serializer) {
+        this.unsafeRowSerializer = serializer.newInstance();
     }
 
     private int numFetchedKvPairs = 0; // from kvPairBuffer or kvPairMap.
@@ -411,6 +424,8 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
                                    byteBuffer, int buffer_capacity,
                                    int voffsets[], int knumbers);
 
+
+
     /**
      * return unordered kv pairs to ShuffleReader's Iterator.
      * @param kvalues
@@ -626,8 +641,37 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
     private native int nGetKVPairsWithIntKeys(long ptrToShuffleStore,
                       ByteBuffer byteBuffer, int buffer_capacity, 
                       int knumbers, ShuffleDataModel.MergeSortedResult mergeResult);
- 
-    
+
+    public Iterator<Tuple2<Object, Object>> getSimpleKVPairsWithIntKeys() {
+        MergeSortedResult mergeResult = new MergeSortedResult();
+        boolean bufferExceeded = mergeResult.getBufferExceeded();
+        if (bufferExceeded) {
+            LOG.error("store id " + this.storeId +
+                      " deserialization buffer for shm shuffle reducer is exceeded; need to configure a bigger one");
+            return null;
+        }
+
+        this.deserializer.init();
+        ByteBuffer byteBuffer = this.deserializer.getByteBuffer();
+        int actualKVPairs =
+            nGetSimpleKVPairsWithIntKeys(this.pointerToStore, byteBuffer,
+                                         byteBuffer.capacity(), Integer.MAX_VALUE, mergeResult);
+
+        if (actualKVPairs == 0) {
+            return null;
+        }
+
+        int[] pvVOffsets =mergeResult.getVoffsets();
+        byteBuffer.limit(pvVOffsets[actualKVPairs -1]);
+        LOG.info(String.format("reducerId[%d]: %d pairs(%d bytes) fetched"
+                               , reduceId, actualKVPairs
+                               , byteBuffer.limit()));
+
+        return this.unsafeRowSerializer
+            .deserializeStream(new ByteBufferInputStream(byteBuffer))
+            .asKeyValueIterator();
+    }
+
     @Override
     public  int getSimpleKVPairsWithIntKeys (ArrayList<Integer>kvalues, ArrayList<Object> values, int knumbers) {
     	//I can still use the same APIs for the simple key/value pairs retrieval 

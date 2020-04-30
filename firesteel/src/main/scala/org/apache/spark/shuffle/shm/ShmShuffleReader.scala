@@ -16,15 +16,14 @@
  */
 package org.apache.spark.shuffle.shm
 
+import java.nio.ByteBuffer
+
+import org.apache.spark.{InterruptibleIterator, TaskContext}
+import org.apache.spark.SparkEnv
 import org.apache.spark.internal.Logging
 import org.apache.spark.shuffle.{BaseShuffleHandle, ShuffleReader}
-import org.apache.spark.TaskContext
-
 import org.apache.spark.serializer.KryoSerializer;
-import org.apache.spark.SparkEnv;
-
-import java.nio.ByteBuffer
-import org.apache.spark.{InterruptibleIterator, TaskContext}
+import org.apache.spark.sql.execution.UnsafeRowSerializer
 
 import com.hp.hpl.firesteel.shuffle.{ThreadLocalShuffleResourceHolder, ShuffleStoreManager}
 import com.hp.hpl.firesteel.shuffle.ReduceSHMShuffleStore
@@ -108,6 +107,11 @@ private[spark] class ShmShuffleReader[K, C](shuffleStoreMgr:ShuffleStoreManager,
                         //true to allow sort/merge-sort with ordering.
     reduceShuffleStore.setEnableJniCallback(
       SparkEnv.get.conf.getBoolean("spark.shm.enable.jni.callback", false));
+
+    if (dep.serializer.isInstanceOf[UnsafeRowSerializer]) {
+      reduceShuffleStore.isUnsafeRow = true
+      reduceShuffleStore.setUnsafeRowSerializer(dep.serializer)
+    }
 
     val iter =
       ShmShuffleStoreShuffleFetcher.fetch(reduceShuffleStore,shuffleId, reduceId,

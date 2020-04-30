@@ -25,6 +25,7 @@ import com.hp.hpl.firesteel.shuffle.ShuffleDataModel
 import org.apache.spark.TaskContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.storage.{BlockId, BlockManagerId, ShuffleBlockId}
+import org.apache.spark.executor.TempShuffleReadMetrics
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -45,8 +46,10 @@ import java.lang.{String => JString}
  */
 private[spark] class ShmShuffleFetcherKeyValueIterator
 (context: TaskContext,
- statuses: Seq[(BlockId, Long, Long, Long, Boolean)],
- reduceShuffleStore: ReduceSHMShuffleStore)
+  statuses: Seq[(BlockId, Long, Long, Long, Boolean)],
+  reduceShuffleStore: ReduceSHMShuffleStore,
+  shuffleMetrics: TempShuffleReadMetrics
+)
   extends Iterator[(Any, Any)] with Logging {
 
   //this parameter will be set as a configuration parameter later.
@@ -75,9 +78,6 @@ private[spark] class ShmShuffleFetcherKeyValueIterator
   private val skvalues = new ArrayList[JString]()
   private val bakvalues = new ArrayList[Array[Byte]]()
   private val okvalues = new ArrayList[Object]()
-
-  private val shuffleMetrics =
-    context.taskMetrics().createTempShuffleReadMetrics()
 
   initialize()
 

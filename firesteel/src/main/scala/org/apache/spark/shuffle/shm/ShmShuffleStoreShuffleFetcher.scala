@@ -78,25 +78,32 @@ private[spark] object ShmShuffleStoreShuffleFetcher extends Logging {
       }
     }
 
-    val blockFetcherItr = if (aggregation) {
+    val readMetrics =
+      context.taskMetrics.createTempShuffleReadMetrics
+
+    val blockFetcherItr = if (reduceShuffleStore.isUnsafeRow) {
+      new ShmShuffleUnsafeRowFetcher(
+        context,
+        statuses,
+        reduceShuffleStore,
+        readMetrics
+      ).toIterator
+    } else if (aggregation) {
       new ShmShuffleFetcherKeyValuesIterator(
         context,
         statuses,
-        reduceShuffleStore)
-    }
-    else {
+        reduceShuffleStore,
+        readMetrics)
+    } else {
       new ShmShuffleFetcherKeyValueIterator (
         context,
         statuses,
-        reduceShuffleStore)
+        reduceShuffleStore,
+        readMetrics)
     }
 
-    val readMetrics =
-      context.taskMetrics.createTempShuffleReadMetrics()
-
-    val completionIter =
-      CompletionIterator[(Any, Any), Iterator[(Any, Any)]](
-      blockFetcherItr.map { record =>
+    val completionIter = CompletionIterator[(Any, Any), Iterator[(Any, Any)]](
+      blockFetcherItr.map({record => {
         if (record._2.isInstanceOf[Seq[Any]]) {
           readMetrics.incRecordsRead(
             record._2.asInstanceOf[Seq[Any]].length)
@@ -109,9 +116,11 @@ private[spark] object ShmShuffleStoreShuffleFetcher extends Logging {
             readMetrics.incLocalBytesRead(Integer.BYTES + row.getSizeInBytes)
           }
         }
+
         record
-      },
-      context.taskMetrics().mergeShuffleReadMetrics())
+      }}),
+      // TODO: It might be better to merge stop/shutdown stores here.
+      context.taskMetrics.mergeShuffleReadMetrics())
 
     new InterruptibleIterator[(Any, Any)](context, completionIter)
   }
