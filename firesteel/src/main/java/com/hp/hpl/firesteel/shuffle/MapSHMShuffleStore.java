@@ -17,13 +17,17 @@
 
 package com.hp.hpl.firesteel.shuffle;
 
-
-import com.esotericsoftware.kryo.Kryo;
-import com.esotericsoftware.kryo.io.ByteBufferOutput;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import scala.reflect.ClassTag$;
+
+import org.apache.spark.serializer.SerializationStream;
+
+import com.esotericsoftware.kryo.Kryo;
+import com.esotericsoftware.kryo.io.ByteBufferOutput;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -201,6 +205,18 @@ public class MapSHMShuffleStore implements MapShuffleStore {
         LOG.info("Jni Callback: " + this.enableJniCallback);
     }
 
+    public boolean isUnsafeRow = false;
+
+    private SerializationStream unsafeRowSerializationStream = null;
+    public void setUnsafeRowSerializer(SerializationStream ss) {
+        this.unsafeRowSerializationStream = ss;
+    }
+    public void finalizeUnsafeRowSerializer() {
+        this.unsafeRowSerializationStream.flush();
+        this.unsafeRowSerializationStream.close();
+        this.unsafeRowSerializationStream = null;
+    }
+
     /**
      * to initialize the storage space for a particular shuffle stage's map instance
      * @param shuffleId the current stage id
@@ -314,11 +330,15 @@ public class MapSHMShuffleStore implements MapShuffleStore {
 
     //for key = int, value = object 
     protected  void serializeVInt (int kvalue, Object vvalue, int partitionId, int indexPosition) {
-    	
-    	this.nkvalues[indexPosition] = kvalue;
+        this.nkvalues[indexPosition] = kvalue;
         this.npartitions[indexPosition] = partitionId;
         //serialize v into the bytebuffer. serializer has been initialized already.
-        this.serializer.writeObject(vvalue);
+        if (this.isUnsafeRow) {
+            this.unsafeRowSerializationStream
+                .writeValue(vvalue, ClassTag$.MODULE$.Object());
+        } else {
+            this.serializer.writeObject(vvalue);
+        }
         ByteBuffer currentVBuf = this.serializer.getByteBuffer();
         this.voffsets[indexPosition]= currentVBuf.position();
     }

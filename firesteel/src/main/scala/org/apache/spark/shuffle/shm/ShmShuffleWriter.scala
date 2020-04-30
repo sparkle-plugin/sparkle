@@ -17,27 +17,30 @@
 
 package org.apache.spark.shuffle.shm
 
-import org.apache.spark.internal.Logging
-import org.apache.spark.scheduler.MapStatus
-import org.apache.spark.shuffle._
-
-import org.apache.spark.{SharedMemoryMapStatus, TaskContext, SparkEnv}
-
-import org.apache.spark.serializer.KryoSerializer
-import org.apache.spark.storage.BlockManagerId
-
-import com.esotericsoftware.kryo.io.ByteBufferOutput;
-
-import com.hp.hpl.firesteel.shuffle._
-import com.hp.hpl.firesteel.shuffle.ThreadLocalShuffleResourceHolder._
-
 import java.util.Comparator
 import java.nio.ByteBuffer
+
 import scala.annotation.switch
 import scala.collection.mutable.Map
 import scala.collection.mutable.OpenHashMap
 import scala.collection.mutable.Buffer
 import scala.collection.mutable.ArrayBuffer
+
+import org.apache.spark.internal.Logging
+import org.apache.spark.scheduler.MapStatus
+import org.apache.spark.shuffle._
+import org.apache.spark.{SharedMemoryMapStatus, TaskContext, SparkEnv}
+import org.apache.spark.serializer.KryoSerializer
+import org.apache.spark.serializer.SerializationStream
+import org.apache.spark.storage.BlockManagerId
+import org.apache.spark.sql.catalyst.expressions.UnsafeRow
+
+import com.esotericsoftware.kryo.io.ByteBufferOutput
+
+import com.fasterxml.jackson.databind.util.ByteBufferBackedOutputStream
+
+import com.hp.hpl.firesteel.shuffle._
+import com.hp.hpl.firesteel.shuffle.ThreadLocalShuffleResourceHolder._
 
 /**
  * Shuffle writer designed for shared-memory based access.
@@ -201,6 +204,16 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
       }
       mapShuffleStore.setEnableJniCallback(useJni)
 
+      if (firstKV._2.isInstanceOf[UnsafeRow]) {
+        mapShuffleStore.isUnsafeRow = true
+
+        val resource =
+          threadLocalShuffleResource.getSerializationResource()
+        mapShuffleStore.setUnsafeRowSerializer(
+          dep.serializer.newInstance.serializeStream(
+            new ByteBufferBackedOutputStream(resource.getByteBuffer)))
+      }
+
       var count: Int = 0
       //NOTE: we can not use records for iteration--It will miss the first value.
       val scode=kvalueTypeId.getState()
@@ -240,6 +253,10 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
       //that pick up the type should not use the channel (bucket) that has zero size bucket to
       //determine the type.
       mapShuffleStore = createMapShuffleStore(firstKV._1)
+    }
+
+    if (mapShuffleStore.isUnsafeRow) {
+      mapShuffleStore.finalizeUnsafeRowSerializer()
     }
 
     //when done, issue sort and store and get the map status information

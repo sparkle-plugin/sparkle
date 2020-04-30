@@ -119,10 +119,6 @@ private[spark] class ShmShuffleFetcherKeyValuesIterator
        shuffleMetrics.incLocalBytesRead(reduceStatus.getBytesDataChunks)
        shuffleMetrics.incRemoteBlocksFetched(reduceStatus.getNumRemoteDataChunks)
        shuffleMetrics.incRemoteBytesRead(reduceStatus.getBytesRemoteDataChunks)
-       // If jvm callback enabled, the status contains # of records read from buckets.
-       if (reduceShuffleStore.getEnableJniCallback) {
-         shuffleMetrics.incRecordsRead(reduceStatus.getNumRecords)
-       }
      }
 
       fetchRound=0
@@ -271,7 +267,6 @@ private[spark] class ShmShuffleFetcherKeyValuesIterator
          var numRawPairs = Array(0)
          actualPairs = reduceShuffleStore.getKVPairs(
            okvalues, vvalues, SHUFFLE_MERGED_KEYVALUE_PAIRS_RETRIEVAL_SIZE, numRawPairs)
-         shuffleMetrics.incRecordsRead(numRawPairs{0})
 
          //now, push the data to the kvbuffer.
          for (i <- 0 to actualPairs-1) {
