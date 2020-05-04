@@ -332,14 +332,19 @@ public class MapSHMShuffleStore implements MapShuffleStore {
     //for key = int, value = object 
     protected  void serializeVInt (int kvalue, Object vvalue, int partitionId, int indexPosition) {
         this.nkvalues[indexPosition] = kvalue;
-        this.npartitions[indexPosition] = partitionId;
         //serialize v into the bytebuffer. serializer has been initialized already.
-        ByteBuffer currentVBuf = this.serializer.getByteBuffer();
+        ByteBuffer currentVBuf = this.isUnsafeRow
+	    ? this.serializer.originalBuffer
+	    : this.serializer.getByteBuffer();
         if (this.isUnsafeRow) {
+	    this.npartitions[indexPosition] = kvalue;
+
             this.unsafeRowSerializationStream
                 .writeValue(vvalue, ClassTag$.MODULE$.Object());
             this.unsafeRowSerializationStream.flush();
         } else {
+	    this.npartitions[indexPosition] = partitionId;
+
             this.serializer.writeObject(vvalue);
         }
         this.voffsets[indexPosition]= currentVBuf.position();
