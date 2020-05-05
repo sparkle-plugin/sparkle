@@ -434,6 +434,10 @@ JNIEXPORT void JNICALL Java_com_hp_hpl_firesteel_shuffle_MapSHMShuffleStore_nsor
            env->SetObjectField (mStatus, mapStatusArrayFieldId, mstatusLongArrayVal);
            env->SetLongField (mStatus, regionIdOfIndexBucketFieldId, shmRegionId);
            env->SetLongField (mStatus, offsetOfIndexBucketFieldId, offsetOfIndexChunk);
+	   {
+	     jfieldID fidWrittenTime {env->GetFieldID(cls, "dataChunkWrittenTimeNs", "J")};
+	     env->SetLongField(mStatus, fidWrittenTime, mapStatus.getWrittenTimeNs());
+	   }
 
            VLOG(2) << "****after writeShuffleData with int keys, finish object field assignment "; 
 

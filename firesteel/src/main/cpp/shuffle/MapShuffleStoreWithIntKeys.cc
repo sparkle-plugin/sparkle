@@ -15,7 +15,12 @@
  *
  */
 
+#include <algorithm>
+#include <chrono>
+#include <stdlib.h>
+
 #include <glog/logging.h>
+
 #include "ShuffleStoreManager.h"
 #include "MapShuffleStoreWithIntKeys.h"
 #include "ShuffleConstants.h"
@@ -26,9 +31,6 @@
 #include "ArrayBufferPool.h"
 #include "MapStatus.h"
 #include "SimpleUtils.h"
-
-#include <algorithm>
-#include <stdlib.h>
 
 //for int key comparision 
 struct MapShuffleComparatorWithIntKey {
@@ -365,7 +367,8 @@ MapStatus MapShuffleStoreWithIntKey::writeShuffleData() {
      dataChunkOffsets[i]=local_ptr;
   }
 
-  //now we will write data chunk one by one 
+  // now we will write data chunk one by one
+  auto start = chrono::system_clock::now();
   for (size_t p =0; p<sizeTracker; ++p) {
     //scan from the beginning to the end
     //change to next partition if necessary 
@@ -376,21 +379,19 @@ MapStatus MapShuffleStoreWithIntKey::writeShuffleData() {
       ptr = writer.write_datachunk_intkey((unsigned char*) ptr, keys[p].key, keys[p].value_tracker.value_size);
       VLOG (2) << "write data chunk int key for key: " 
 	       << keys[p].key << " and value size: " << keys[p].value_tracker.value_size;
+
       //retrieve data to data chunk from the buffer manager's managed bytebuffers. 
       bufferMgr.retrieve(keys[p].value_tracker, (unsigned char*)ptr);
       VLOG (2) << "buffer manager populated value to data chunk for key: " << keys[p].key 
 	       << " and value size: " << keys[p].value_tracker.value_size 
                << " at memory address: " << (void*) ptr;
 
-      //for (int i=0; i<p->value_tracker.value_size; i++) {
-      // unsigned char v= *(ptr+i);
-      // VLOG(2) << "****NVM write at address: " << (void*) (ptr+i)<<  " with value: " << (int) v;
-      //}
-
       ptr += keys[p].value_tracker.value_size;
       dataChunkOffsets[current_partition_number] = ptr; //take it back for next key.
     }
   }
+  auto end = chrono::system_clock::now();
+  mapStatus.setWrittenTime(chrono::duration_cast<chrono::nanoseconds>(end - start).count());
 
   //map status returns the information that later we can get back all of the written shuffle data.
   return mapStatus; 
