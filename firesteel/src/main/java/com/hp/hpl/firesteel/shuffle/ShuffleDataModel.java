@@ -180,6 +180,10 @@ public interface ShuffleDataModel {
         //to indicate whether the de-serialization buffer is big enough or not to hold this batch of k-vs pairs
         private boolean bufferExceeded;
 
+        private long numLocalBucketsRead = 0;
+        private long numRemoteBucketsRead = 0;
+        private long bytesLocalBucketsRead = 0;
+        private long bytesRemoteBucketsRead = 0;
 
         public MergeSortedResult (){
             intKvalues= null;
@@ -204,7 +208,7 @@ public interface ShuffleDataModel {
         public void setStringKValues(String values[]) {
             this.stringKvalues = values;
         }
-        
+
         //for variable keys
         public void setKoffsets (int offsets[]) {
             this.koffsets = offsets;
@@ -213,7 +217,7 @@ public interface ShuffleDataModel {
         public void setVoffsets (int offsets[]) {
             this.voffsets = offsets;
         }
-        
+
         public void setBufferExceeded (boolean val) { this.bufferExceeded = val; }
 
         public int[] getIntKvalues (){
@@ -235,13 +239,25 @@ public interface ShuffleDataModel {
         public int[] getKoffsets() {
             return this.koffsets;
         }
-        
+
         public int[] getVoffsets() {
             return this.voffsets;
         }
 
         public boolean getBufferExceeded() { return this.bufferExceeded; }
-    }
 
+        public long getNumLocalBucketsRead() {
+            return this.numLocalBucketsRead;
+        }
+        public long getNumRemoteBucketsRead() {
+            return this.numRemoteBucketsRead;
+        }
+        public long getBytesLocalBucketsRead() {
+            return this.bytesLocalBucketsRead;
+        }
+        public long getBytesRemoteBucketsRead() {
+            return this.bytesRemoteBucketsRead;
+        }
+    }
     //we can have other types, later.
 }

@@ -779,7 +779,30 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
         return -1;
      }
    }
-   
+
+   static jfieldID numLocalBucketsReadFieldId = NULL;
+   if (numLocalBucketsReadFieldId == NULL) {
+       numLocalBucketsReadFieldId =
+           env->GetFieldID(cls, "numLocalBucketsRead", "J");
+   }
+   static jfieldID numRemoteBucketsReadFieldId = NULL;
+   if (numRemoteBucketsReadFieldId == NULL) {
+       numRemoteBucketsReadFieldId =
+           env->GetFieldID(cls, "numRemoteBucketsRead", "J");
+   }
+
+   static jfieldID bytesLocalBucketsReadFieldId = NULL;
+   if (bytesLocalBucketsReadFieldId == NULL) {
+       bytesLocalBucketsReadFieldId =
+           env->GetFieldID(cls, "bytesLocalBucketsRead", "J");
+   }
+
+   static jfieldID bytesRemoteBucketsReadFieldId = NULL;
+   if (bytesRemoteBucketsReadFieldId == NULL) {
+       bytesRemoteBucketsReadFieldId =
+           env->GetFieldID(cls, "bytesRemoteBucketsRead", "J");
+   }
+
    //for sure, this is an int-key based reduce shuffle store, return the actual number of the k-vs.
    ReduceShuffleStoreWithIntKey *shuffleStoreWithIntKeys = 
                        reinterpret_cast<ReduceShuffleStoreWithIntKey *> (ptrToReduceStore);
@@ -798,18 +821,24 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
    //         << SHMShuffleGlobalConstants::SERIALIZATION_BUFFER_SIZE;
 
    //int reducerId = shuffleStoreWithIntKeys->getReducerId();
-   jboolean bufferExceeded = false; 
+   jboolean bufferExceeded = false;
 
-   bool ordering = shuffleStoreWithIntKeys->needsOrdering(); 
+   long numLocalBucketsRead {0};
+   long numRemoteBucketsRead {0};
+   long bytesLocalBucketsRead {0};
+   long bytesRemoteBucketsRead {0};
+
+   bool ordering = shuffleStoreWithIntKeys->needsOrdering();
    if (!ordering) {
-     IntKeyWithFixedLength::PassThroughMapBuckets& resultHolder = shuffleStoreWithIntKeys->getPassThroughResultHolder();
+     IntKeyWithFixedLength::PassThroughMapBuckets& resultHolder =
+         shuffleStoreWithIntKeys->getPassThroughResultHolder();
      shuffleStoreWithIntKeys->reset_passthroughresult();
-     actualNumberOfKVs = shuffleStoreWithIntKeys->retrieve_passthroughmapbuckets(kmaxNumbers);
-
-     VLOG(2) << "***in JNI getSimpleKVPairs with int keys, finished retrieve_passthroughmapbuckets with number of KVs: " << actualNumberOfKVs;   
+     actualNumberOfKVs =
+         shuffleStoreWithIntKeys->retrieve_passthroughmapbuckets(kmaxNumbers);
 
      //(2.1) kvalues
      kvaluesArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
+
      //(2.2)voffsets. Note that we only need the boundary of the values, as the de-serialization
      // knows how to do de-serialization by itself.
      voffsetsArray = (jint*) malloc (actualNumberOfKVs* sizeof(int));
@@ -820,6 +849,11 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
        VLOG(3) << "***in JNI getSimpleKVPairs with int keys, retrieved i=" << i<< " key value: " << kvaluesArray[i]
              << " with value at offset: " << voffsetsArray[i] <<endl;
      }
+
+     numLocalBucketsRead = resultHolder.numLocalBucketsRead;
+     numRemoteBucketsRead = resultHolder.numRemoteBucketsRead;
+     bytesLocalBucketsRead = resultHolder.bytesLocalBucketsRead;
+     bytesRemoteBucketsRead = resultHolder.bytesRemoteBucketsRead;
    }//end of direct pass-through
    else {
      IntKeyWithFixedLength::MergeSortedMapBuckets& resultHolder = shuffleStoreWithIntKeys->getMergedResultHolder();
@@ -900,8 +934,14 @@ JNIEXPORT jint JNICALL Java_com_hp_hpl_firesteel_shuffle_ReduceSHMShuffleStore_n
 
 
   //(3) set all of the fields
-  env->SetObjectField (mergeResult, kvaluesArrayFieldId, kvaluesArrayVal);
-  env->SetObjectField (mergeResult, voffsetsArrayFieldId, voffsetsArrayVal);
+  env->SetObjectField(mergeResult, kvaluesArrayFieldId, kvaluesArrayVal);
+  env->SetObjectField(mergeResult, voffsetsArrayFieldId, voffsetsArrayVal);
+  // set metrics.
+  env->SetLongField(mergeResult, numLocalBucketsReadFieldId, numLocalBucketsRead);
+  env->SetLongField(mergeResult, numRemoteBucketsReadFieldId, numRemoteBucketsRead);
+  env->SetLongField(mergeResult, bytesLocalBucketsReadFieldId, bytesLocalBucketsRead);
+  env->SetLongField(mergeResult, bytesRemoteBucketsReadFieldId, bytesRemoteBucketsRead);
+
   //with extensible bytebuffer manager, we will never get the buffer exceeded. what will be extended
   //might be the non-extensible byte buffer that works a a carrier for this batch of the data.
 

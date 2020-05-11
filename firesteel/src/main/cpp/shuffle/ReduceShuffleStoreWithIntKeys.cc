@@ -107,7 +107,6 @@ void ReduceShuffleStoreWithIntKey::init_passthrough_engine() {
 
   engineInitialized=true;
 }
- 
 
 //this is for testing purpose. 
 IntKeyWithFixedLength::MergeSortedMapBucketsForTesting
@@ -354,49 +353,51 @@ int ReduceShuffleStoreWithIntKey::retrieve_mergesortedmapbuckets (int max_number
 
 //this is for the real key/value retrieval, with the maximum number of keys retrieved to be specified
 //NOTE: this retrieval supports direct pass-through of map buckets
-int ReduceShuffleStoreWithIntKey::retrieve_passthroughmapbuckets (int max_number){
-  if (!engineInitialized) {
-    if ( !(orderingRequired || aggregationRequired)) {
-       init_passthrough_engine();
-    }
-  }
-     
-  int numberOfRetrievedKeys=0; 
-  if (!(orderingRequired || aggregationRequired)) {
-    VLOG(2) << "**no ordering/aggregation required. choose pass-through engine"<<endl; 
-     
+int ReduceShuffleStoreWithIntKey::retrieve_passthroughmapbuckets (int max_number) {
+    CHECK(!(orderingRequired || aggregationRequired))
+        << "retrieval of pass-through mapbucket requires no flag of ordering/aggregation to be on";
     CHECK(passThroughResultHolder.isActivated());
 
-    while (thePassThroughEngine.hasNext()) {
-           //note that, each time, the merged result holder will be reset.
-	  thePassThroughEngine.getNextKeyValuePair(passThroughResultHolder);
+    long prevLocalBucketsRead, prevRemoteBucketsRead;
+    if (!engineInitialized) {
+        init_passthrough_engine();
+        prevLocalBucketsRead = prevRemoteBucketsRead = 0;
+    } else {
+        prevLocalBucketsRead = thePassThroughEngine.getLocalBucketsRead();
+        prevRemoteBucketsRead = thePassThroughEngine.getRemoteBucketsRead();
+    }
 
-          if (VLOG_IS_ON(2)) {
+    int numberOfRetrievedKeys=0;
+    while (thePassThroughEngine.hasNext()) {
+        //note that, each time, the merged result holder will be reset.
+        thePassThroughEngine.getNextKeyValuePair(passThroughResultHolder);
+
+        if (VLOG_IS_ON(2)) {
             //NOTE: once the key is added, the key tracker moves to the next position.
             size_t keyValueOffsetTracker = passThroughResultHolder.keyValueOffsetTracker -1; 
             int offset  =  passThroughResultHolder.keyAndValueOffsets[keyValueOffsetTracker].offset;
 
-	    int keyValue = thePassThroughEngine.getCurrentKey();
+            int keyValue = thePassThroughEngine.getCurrentKey();
             VLOG(2) << "**retrieve pass-through mapbuckets**" << " key is: " << keyValue << endl;
             VLOG(2) << "**retrieve pass-through mapbuckets**" << " offset is: " << offset <<endl;
 
-	  }
+        }
 
-	  //retrieved values are already reflected in the merged result holder already.
-	  //resultHolder.kvaluesGroups.push_back(retrieved_values);
-          numberOfRetrievedKeys++;
-          if (numberOfRetrievedKeys == max_number) {
-	     break;
-	  }
-     }
-  }
-  else {
-     //runtime assertion 
-     CHECK(!(orderingRequired || aggregationRequired)) 
-             << "retrieval of pass-through mapbucket requires no flag of ordering/aggregation to be on";
-  }
+        //retrieved values are already reflected in the merged result holder already.
+        //resultHolder.kvaluesGroups.push_back(retrieved_values);
+        numberOfRetrievedKeys++;
+        if (numberOfRetrievedKeys == max_number) {
+            break;
+        }
+    }
 
-  return numberOfRetrievedKeys;
+    // collect metrics here.
+    passThroughResultHolder.numLocalBucketsRead =
+        thePassThroughEngine.getLocalBucketsRead() - prevLocalBucketsRead;
+    passThroughResultHolder.numRemoteBucketsRead =
+        thePassThroughEngine.getRemoteBucketsRead() - prevRemoteBucketsRead;
+
+    return numberOfRetrievedKeys;
 }
 
 //to free the DRAM related resources.

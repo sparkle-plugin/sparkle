@@ -161,8 +161,14 @@ xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/ma
       <version>${maven.scala.plugin.version}</version>
       <executions>
         <execution>
+          <id>scala-compile-first</id>
+          <phase>process-resources</phase>
           <goals>
             <goal>compile</goal>
+          </goals>
+        </execution>
+        <execution>
+          <goals>
             <goal>testCompile</goal>
           </goals>
         </execution>

@@ -14,7 +14,6 @@
  * limitations under the License.
  *
  */
-
 #include <glog/logging.h>
 #include "GenericReduceChannel.h"
 #include "ShuffleDataSharedMemoryReader.h"
@@ -22,6 +21,7 @@
 #include "ShuffleStoreManager.h"
 #include "ShuffleConstants.h"
 #include "ShuffleDataSharedMemoryManager.h"
+#include "SimpleUtils.h"
 
 void GenericReduceChannel::init() {
      CHECK_NE(mapBucket.mapId, -1);
@@ -58,6 +58,16 @@ void GenericReduceChannel::init() {
      VLOG(2) << "retrieved index chunk offset is: " << (void*)indexchunk_offset;
      int keytypeId = ShuffleDataSharedMemoryReader::read_indexchunk_keytype_id(p);
      VLOG(2) << "retrieved index chunk key type id is: " << keytypeId;
+
+     {
+       int nodeId = -1;
+       memcpy(&nodeId, p, sizeof(nodeId));
+       p += sizeof(nodeId);
+
+       if (nodeId == OsUtil::getCurrentNumaNode()) {
+           sameNode = true;
+       }
+     }
 
      p += sizeof(keytypeId);
 

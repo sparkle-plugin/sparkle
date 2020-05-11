@@ -109,12 +109,6 @@ private[spark] object ShmShuffleStoreShuffleFetcher extends Logging {
             record._2.asInstanceOf[Seq[Any]].length)
         } else {
           readMetrics.incRecordsRead(1)
-
-          if (record._2.isInstanceOf[UnsafeRow]) {
-            val row = record._2.asInstanceOf[UnsafeRow]
-            // read from [(Int, UnsafeRow)]:[Byte]
-            readMetrics.incLocalBytesRead(Integer.BYTES + row.getSizeInBytes)
-          }
         }
 
         record

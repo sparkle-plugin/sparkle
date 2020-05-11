@@ -32,6 +32,7 @@ import org.apache.spark.util.ByteBufferInputStream;
 import org.apache.spark.serializer.Serializer;
 import org.apache.spark.serializer.SerializerInstance;
 import org.apache.spark.sql.execution.UnsafeRowSerializerInstance;
+import org.apache.spark.shuffle.shm.ShmTempReadMetrics;
 
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.io.ByteBufferInput;
@@ -642,7 +643,7 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
                       ByteBuffer byteBuffer, int buffer_capacity, 
                       int knumbers, ShuffleDataModel.MergeSortedResult mergeResult);
 
-    public Iterator<Tuple2<Object, Object>> getSimpleKVPairsWithIntKeys() {
+    public Iterator<Tuple2<Object, Object>> getSimpleKVPairsWithIntKeys(ShmTempReadMetrics readMetrics) {
         MergeSortedResult mergeResult = new MergeSortedResult();
         boolean bufferExceeded = mergeResult.getBufferExceeded();
         if (bufferExceeded) {
@@ -660,6 +661,11 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
         if (actualKVPairs == 0) {
             return null;
         }
+
+        readMetrics.setLbuckets(mergeResult.getNumLocalBucketsRead());
+        readMetrics.setRbuckets(mergeResult.getNumRemoteBucketsRead());
+        readMetrics.setLbytes(mergeResult.getBytesLocalBucketsRead());
+        readMetrics.setRbytes(mergeResult.getBytesRemoteBucketsRead());
 
         int[] pvVOffsets =mergeResult.getVoffsets();
         byteBuffer.limit(pvVOffsets[actualKVPairs -1]);

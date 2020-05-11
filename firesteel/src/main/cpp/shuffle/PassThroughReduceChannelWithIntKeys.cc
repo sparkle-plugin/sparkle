@@ -24,44 +24,49 @@
 #include "ShuffleDataSharedMemoryManager.h"
 
 void PassThroughReduceChannelWithIntKeys::getNextKeyValuePair() {
-	 
-	unsigned char *oldPtr = currentPtr; 
+    unsigned char *oldPtr = currentPtr;
 
-	ShuffleDataSharedMemoryReader::read_datachunk_intkey(currentPtr, &currentKeyValue, &currentValueSize);
+    ShuffleDataSharedMemoryReader::read_datachunk_intkey(currentPtr, &currentKeyValue, &currentValueSize);
 
-	VLOG(2) << "retrieved data chunk for map id: " << mapBucket.mapId
-		<< " with key value: " << currentKeyValue << " and value size: " << currentValueSize;
+    VLOG(2) << "retrieved data chunk for map id: " << mapBucket.mapId
+            << " with key value: " << currentKeyValue << " and value size: " << currentValueSize;
 
-	currentPtr += sizeof(currentKeyValue)+sizeof(currentValueSize);
+    currentPtr += sizeof(currentKeyValue)+sizeof(currentValueSize);
 
-	//WARNING: this is not an efficient way to do the work. we will have to use the big buffer to do memory copy,
-	//instead of keep doing malloc. we will have to improve this. 
-	//currentValueValue = (unsigned char*)malloc(currentValueSize);
-	//allocatedValues.push_back(currentValueValue); //to keep track of the memory allocated.
-	currentValueValue =currentPtr;
-	//direct copy to the pass-through buffer.
-	//delegate the buffer copy until the buffer is copied to the pass-through keyvalue tracker.
-        //ShuffleDataSharedMemoryReader::read_datachunk_keyassociated_value(
-        //           currentPtr, currentValueSize, passThroughBuffer); 
+    //WARNING: this is not an efficient way to do the work. we will have to use the big buffer to do memory copy,
+    //instead of keep doing malloc. we will have to improve this.
+    //currentValueValue = (unsigned char*)malloc(currentValueSize);
+    //allocatedValues.push_back(currentValueValue); //to keep track of the memory allocated.
+    currentValueValue =currentPtr;
+    //direct copy to the pass-through buffer.
+    //delegate the buffer copy until the buffer is copied to the pass-through keyvalue tracker.
+    //ShuffleDataSharedMemoryReader::read_datachunk_keyassociated_value(
+    //           currentPtr, currentValueSize, passThroughBuffer);
 
-	//after that , you need to move the pointer
-	currentPtr += currentValueSize;
-	kvalueCursor++;
-	totalBytesScanned += (currentPtr - oldPtr); 
+    //after that , you need to move the pointer
+    currentPtr += currentValueSize;
+    kvalueCursor++;
+    totalBytesScanned += (currentPtr - oldPtr);
 }
 
 //this is the method in which the key/value pair contributed for all of the map channnels 
 //get populated into the hash table.
 void PassThroughReduceEngineWithIntKeys::init() {
-        //to build the hash table for each channel.
-	for (auto p = passThroughReduceChannels.begin(); p != passThroughReduceChannels.end(); ++p) {
-		p->init();
-	}
+    //to build the hash table for each channel.
+    for (auto p = passThroughReduceChannels.begin(); p != passThroughReduceChannels.end(); ++p) {
+        p->init();
+    }
 
-	//NOTE: should the total number of the channels to be merged is equivalent to total number of partitions?
-	//or we only consider the non-zero-sized buckets/channels to be merged? 
-        currentChannelIndex =0;
-        sizeOfChannels = passThroughReduceChannels.size();
+    //NOTE: should the total number of the channels to be merged is equivalent to total number of partitions?
+    //or we only consider the non-zero-sized buckets/channels to be merged?
+    currentChannelIndex =0;
+    sizeOfChannels = passThroughReduceChannels.size();
+
+    if (passThroughReduceChannels[0].isSameNode()) {
+        localBucketsRead++;
+    } else {
+        remoteBucketsRead++;
+    }
 }
 
 /*
@@ -69,23 +74,31 @@ void PassThroughReduceEngineWithIntKeys::init() {
  */
 void PassThroughReduceEngineWithIntKeys::getNextKeyValuePair(
                       IntKeyWithFixedLength::PassThroughMapBuckets& passThroughResultHolder) {
-     passThroughReduceChannels[currentChannelIndex].getNextKeyValuePair();
-     currentKey =  passThroughReduceChannels[currentChannelIndex].getCurrentKeyValue();
-     unsigned char* currentValue = passThroughReduceChannels[currentChannelIndex].getCurrentValueValue();
-     int valSize = passThroughReduceChannels[currentChannelIndex].getCurrentValueSize();
-     passThroughResultHolder.addKeyValue(currentKey, currentValue, valSize);
+    passThroughReduceChannels[currentChannelIndex].getNextKeyValuePair();
+    currentKey =  passThroughReduceChannels[currentChannelIndex].getCurrentKeyValue();
+    unsigned char* currentValue = passThroughReduceChannels[currentChannelIndex].getCurrentValueValue();
+    int valSize = passThroughReduceChannels[currentChannelIndex].getCurrentValueSize();
+    passThroughResultHolder.addKeyValue(currentKey, currentValue, valSize);
+
+    // collect shuffle metrics.
+    if (passThroughReduceChannels[currentChannelIndex].isSameNode()) {
+        passThroughResultHolder.bytesLocalBucketsRead +=
+            sizeof(int) * 2 + valSize; // key + valSize + val.
+    } else {
+        passThroughResultHolder.bytesRemoteBucketsRead +=
+            sizeof(int) * 2 + valSize;
+    }
 }
 
 
 void PassThroughReduceEngineWithIntKeys::shutdown() {
-  for (auto p = passThroughReduceChannels.begin(); p != passThroughReduceChannels.end(); ++p) {
-	p->shutdown();
-  }
+    for (auto p = passThroughReduceChannels.begin(); p != passThroughReduceChannels.end(); ++p) {
+        p->shutdown();
+    }
 
-  passThroughReduceChannels.clear();
-  if (VLOG_IS_ON(2)) {
-    VLOG(2) << "pass-through channels are shutdown, with current size: " 
-            << passThroughReduceChannels.size() <<  endl;
-  }
+    passThroughReduceChannels.clear();
+    if (VLOG_IS_ON(2)) {
+        VLOG(2) << "pass-through channels are shutdown, with current size: "
+                << passThroughReduceChannels.size() <<  endl;
+    }
 }
-

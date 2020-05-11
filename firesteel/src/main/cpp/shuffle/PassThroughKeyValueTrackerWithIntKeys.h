@@ -14,7 +14,6 @@
  * limitations under the License.
  *
  */
-
 #ifndef PASSTHROUGH_KEY_TRACKER_WITH_INT_KEYS_H_
 #define PASSTHROUGH_KEY_TRACKER_WITH_INT_KEYS_H_
 
@@ -59,6 +58,12 @@ namespace IntKeyWithFixedLength {
 
     //to record whether it is activated;
     bool activated; 
+
+    // to keep track of shuffle stats.
+    long numLocalBucketsRead {0};
+    long numRemoteBucketsRead {0};
+    long bytesLocalBucketsRead {0};
+    long bytesRemoteBucketsRead {0};
 
     PassThroughMapBuckets(int rId, bool ordering, bool aggregation,
                          unsigned char *buffer, size_t buf_capacity):
@@ -132,15 +137,20 @@ namespace IntKeyWithFixedLength {
     }
 
     void reset() {
-        //start with 0 
+        //start with 0
         keyValueOffsetTracker=0;
         bufferPositionTracker =0;
         passThroughBufferCursor=passThroughBuffer;
+
+        numLocalBucketsRead = 0;
+        numRemoteBucketsRead = 0;
+        bytesLocalBucketsRead = 0;
+        bytesRemoteBucketsRead = 0;
     }
 
     //to free the held resources, and return them to the pool.
     void release() {
-        //start with 0 
+        //start with 0
         keyValueOffsetTracker = 0;
         bufferPositionTracker = 0;
         passThroughBufferCursor=passThroughBuffer;
@@ -149,13 +159,14 @@ namespace IntKeyWithFixedLength {
         if (keyAndValueOffsets != nullptr ) {
            free((void*)keyAndValueOffsets);
            keyAndValueOffsets = nullptr;
-	}
+        }
 
+        numLocalBucketsRead = 0;
+        numRemoteBucketsRead = 0;
+        bytesLocalBucketsRead = 0;
+        bytesRemoteBucketsRead = 0;
     }
 
   };
 };
-
 #endif /*PASSTHROUGH_KEY_TRACKER_WITH_INT_KEYS_H_*/
-
-

@@ -3,6 +3,7 @@ package org.apache.spark.shuffle.shm
 import scala.collection.mutable.ArrayBuffer
 import scala.language.existentials
 import scala.collection.JavaConversions._
+import scala.beans.BeanProperty
 
 import java.util.List
 import java.util.ArrayList
@@ -41,11 +42,25 @@ private[spark] class ShmShuffleUnsafeRowFetcher(
   reduceShuffleStore.mergeSort(reduceStatus)
 
   def toIterator():Iterator[(Any, Any)] = {
-    val itr = reduceShuffleStore.getSimpleKVPairsWithIntKeys
+    val shmMetrics = new ShmTempReadMetrics
+
+    val itr = reduceShuffleStore.getSimpleKVPairsWithIntKeys(shmMetrics)
+
+    metrics.incLocalBlocksFetched(shmMetrics.lbuckets)
+    metrics.incLocalBytesRead(shmMetrics.lbytes)
+    metrics.incRemoteBlocksFetched(shmMetrics.rbuckets)
+    metrics.incRemoteBytesRead(shmMetrics.rbytes)
 
     reduceShuffleStore.stop
     reduceShuffleStore.shutdown
 
     return itr
   }
+}
+
+class ShmTempReadMetrics() {
+  @BeanProperty var lbuckets = 0L
+  @BeanProperty var rbuckets = 0L
+  @BeanProperty var lbytes = 0L
+  @BeanProperty var rbytes = 0L
 }
