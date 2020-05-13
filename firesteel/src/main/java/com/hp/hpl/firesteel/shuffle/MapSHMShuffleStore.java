@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import scala.reflect.ClassTag$;
 
 import org.apache.spark.serializer.SerializationStream;
+import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
 
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.io.ByteBufferOutput;
@@ -329,27 +330,34 @@ public class MapSHMShuffleStore implements MapShuffleStore {
 
     private native void nshutdown(long ptrToMgr, long ptrToStore);
 
-    //for key = int, value = object 
-    protected  void serializeVInt (int kvalue, Object vvalue, int partitionId, int indexPosition) {
+    //for key = int, value = object
+    protected void serializeVInt (int kvalue, Object vvalue, int partitionId, int indexPosition) {
         this.nkvalues[indexPosition] = kvalue;
         //serialize v into the bytebuffer. serializer has been initialized already.
         ByteBuffer currentVBuf = this.isUnsafeRow
-	    ? this.serializer.originalBuffer
-	    : this.serializer.getByteBuffer();
+            ? this.serializer.originalBuffer
+            : this.serializer.getByteBuffer();
+
         if (this.isUnsafeRow) {
-	    this.npartitions[indexPosition] = kvalue;
+            this.npartitions[indexPosition] = kvalue;
+
+            // If not set limit manually, some map tasks raise BufferOverflowException.
+            int newLimit =
+                currentVBuf.limit()
+                + ((UnsafeRow) vvalue).getSizeInBytes() + Integer.BYTES;
+            currentVBuf.limit(Integer.min(newLimit, currentVBuf.capacity()));
 
             this.unsafeRowSerializationStream
                 .writeValue(vvalue, ClassTag$.MODULE$.Object());
             this.unsafeRowSerializationStream.flush();
         } else {
-	    this.npartitions[indexPosition] = partitionId;
+            this.npartitions[indexPosition] = partitionId;
 
             this.serializer.writeObject(vvalue);
         }
         this.voffsets[indexPosition]= currentVBuf.position();
     }
-    
+
     //for key = float, value = object 
     protected void serializeVFloat (float kvalue, Object vvalue, int partitionId, int indexPosition) {
     	
@@ -409,14 +417,14 @@ public class MapSHMShuffleStore implements MapShuffleStore {
         this.voffsets[indexPosition]= currentVBuf.position();
      }
 
-     @Override 
+     @Override
      public void serializeKVPair (Object kvalue, Object vvalue, int partitionId, int indexPosition, int scode) {
-          //rely on Java to generate fast switch statement. 
-    	  switch (scode) {
-    	    case 0: 
-		 serializeVInt (((Integer)kvalue).intValue(), vvalue, partitionId,  indexPosition); 
-    	    	 break;
-    	    case 1: 
+          //rely on Java to generate fast switch statement.
+         switch (scode) {
+         case 0:
+             serializeVInt(((Integer)kvalue).intValue(), vvalue, partitionId,  indexPosition); 
+             break;
+         case 1:
 		 serializeVLong (((Long)kvalue).longValue(), vvalue, partitionId,  indexPosition);
     	    	 break;
     	    case 2:
