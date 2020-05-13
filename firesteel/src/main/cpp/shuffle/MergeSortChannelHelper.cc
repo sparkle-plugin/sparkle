@@ -54,6 +54,8 @@ void MergeSortChannelHelper::obtain_kv_definition (
 
      unsigned char *p = indexchunk_offset;
 
+     p += sizeof(int);
+
      VLOG(2) << "retrieved index chunk offset: " << (void*)indexchunk_offset;
      CHECK (indexchunk_offset != nullptr);
 
