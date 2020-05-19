@@ -14,8 +14,11 @@
  * limitations under the License.
  *
  */
+#include <algorithm>
+#include <stdlib.h>
 
 #include <glog/logging.h>
+
 #include "ShuffleStoreManager.h"
 #include "MapShuffleStoreWithLongKeys.h"
 #include "ShuffleConstants.h"
@@ -27,18 +30,13 @@
 #include "MapStatus.h"
 #include "SimpleUtils.h"
 
-#include <algorithm>
-#include <stdlib.h>
-
-//for int key comparision 
+//for long key comparision
 struct MapShuffleComparatorWithLongKey {
-
   inline bool operator()(const LongKeyWithValueTracker &a, const LongKeyWithValueTracker &b) {
     if (a.partition == b.partition){
-      //when equival, if the key as comparation. 
+      //when equival, if the key as comparation.
       return (a.key < b.key);
-    }
-    else {
+    } else {
       return (a.partition < b.partition);
     }
   }
@@ -56,15 +54,14 @@ MapShuffleStoreWithLongKey::MapShuffleStoreWithLongKey (int bufsize, int mId, bo
       //struct timespec before, after;
       //clock_gettime(CLOCK_MONOTONIC,&before);
       ArrayBufferElement bElement =
-	ShuffleStoreManager::getInstance()->getKeyBufferPool(KValueTypeId::Long)->getBuffer();
+          ShuffleStoreManager::getInstance()->getKeyBufferPool(KValueTypeId::Long)->getBuffer();
       if (bElement.capacity == 0) {
         //ask OS to give me the key buffer.
         keys =
           (LongKeyWithValueTracker*) malloc(sizeof(LongKeyWithValueTracker)*
           SHMShuffleGlobalConstants::MAPSHUFFLESTORE_KEY_BUFFER_SIZE);
         currentKeyBufferCapacity=SHMShuffleGlobalConstants::MAPSHUFFLESTORE_KEY_BUFFER_SIZE;
-      }
-      else {
+      } else {
         keys = (LongKeyWithValueTracker*)bElement.start_address;
         currentKeyBufferCapacity=bElement.capacity;
       }
@@ -78,10 +75,10 @@ MapShuffleStoreWithLongKey::MapShuffleStoreWithLongKey (int bufsize, int mId, bo
       sizeTracker =0;
 }
 
-//please refer to C++ 11 reference book page. 194                          
+//please refer to C++ 11 reference book page. 194
 MapShuffleStoreWithLongKey::MapShuffleStoreWithLongKey(int mId, bool ordering) : 
           bufferMgr(SHMShuffleGlobalConstants::BYTEBUFFER_HOLDER_SIZE),
-	  mapId(mId),
+          mapId(mId),
           kvTypeDefinition(KValueTypeId::Long),
           orderingRequired (ordering) {
       //will be set at the sort call.
@@ -91,7 +88,7 @@ MapShuffleStoreWithLongKey::MapShuffleStoreWithLongKey(int mId, bool ordering) :
       //clock_gettime(CLOCK_MONOTONIC,&before);
 
       ArrayBufferElement bElement =
-	 ShuffleStoreManager::getInstance()->getKeyBufferPool(KValueTypeId::Long)->getBuffer();
+          ShuffleStoreManager::getInstance()->getKeyBufferPool(KValueTypeId::Long)->getBuffer();
       if (bElement.capacity == 0) {
         //ask OS to give me the key buffer.
         keys =
@@ -125,14 +122,14 @@ void MapShuffleStoreWithLongKey::storeKVPairsWithLongKeys (
     }
     int vEnd=voffsets[i];
     int vLength = vEnd-vStart;
-   
-    unsigned char *segment = byteHolder + vStart; 
+
+    unsigned char *segment = byteHolder + vStart;
 
     PositionInExtensibleByteBuffer value_tracker =bufferMgr.append(segment,vLength);
 
     if (sizeTracker == currentKeyBufferCapacity) {
        LOG(INFO) << "keys " << (void*) keys << " with size tracker: " << sizeTracker 
-		<< " reaches buffer size: " << SHMShuffleGlobalConstants::MAPSHUFFLESTORE_KEY_BUFFER_SIZE <<endl;
+                 << " reaches buffer size: " << SHMShuffleGlobalConstants::MAPSHUFFLESTORE_KEY_BUFFER_SIZE <<endl;
        //re-allocate then.
        currentKeyBufferCapacity += SHMShuffleGlobalConstants::MAPSHUFFLESTORE_KEY_BUFFER_SIZE;
 
@@ -147,16 +144,15 @@ void MapShuffleStoreWithLongKey::storeKVPairsWithLongKeys (
        //LOG(INFO) << "realloc to reach key buffer size: " << currentKeyBufferCapacity
        //         <<  " takes " << htime.tv_sec  << "(sec)" << " and " << htime.tv_nsec/1000 << "(us)" <<endl ; 
     }
- 
+
     //direct copy to the array element
     //LongKeyWithValueTracker keyTracker(kvalues[i], partitions[i],value_tracker);
-  
+
     keys[sizeTracker].key = kvalues[i];
     keys[sizeTracker].partition = partitions[i];
     keys[sizeTracker].value_tracker = value_tracker;
 
     sizeTracker++;
-
   }
 }
 
@@ -165,8 +161,6 @@ void MapShuffleStoreWithLongKey::sort(int partitions, bool ordering) {
   //NOTE: This number will need to be initialized!!
   totalNumberOfPartitions = partitions;
 
-  //std::sort(keys.begin(), keys.end(), LongKeyWithValueTrackerComparator);
-  //origin: keys, and advance to one element passing the last element
   if (ordering) {
      std::sort(keys, keys+sizeTracker, LongKeyWithValueTrackerComparator);
   }
@@ -174,21 +168,20 @@ void MapShuffleStoreWithLongKey::sort(int partitions, bool ordering) {
 
 MapStatus MapShuffleStoreWithLongKey::writeShuffleData() {
   //(1) identify how big the index chunk should be: key type id, size of value class, and 
-  // actual value class definition. 
+  // actual value class definition.
   size_t sizeOfVCclassDefinition = vvTypeDefinition.length; //assume this is the value at this time.
-  //if the parition size is  0, then value type definition is 0. 
-  //CHECK(sizeOfVCclassDefinition > 0);
+  //if the parition size is  0, then value type definition is 0.
 
-  //first one is integer key value, second one is the value size record in one integer,
-  //third one is actual value class definition in bytes
-  //fourth one is total number of buckets record in one integer.
-  //the fifth one is list of (global pointer PPtr = <region id, offset> + size of the bucket)
   //NOTE: this layout does not support arbitrary key value definition.
-  size_t  indChunkSize = sizeof (int) + sizeof(int)  
-         + sizeOfVCclassDefinition  
-         + sizeof(int)
-    + totalNumberOfPartitions *(sizeof (uint64_t) + sizeof (uint64_t) + sizeof (int));
-   
+  size_t  indChunkSize =
+      sizeof(int) // NUMA node id
+      + sizeof(int) // integer key value
+      + sizeof(int) // the value size record
+      + sizeOfVCclassDefinition // actual value class definition in bytes
+      + sizeof(int) // the total number of buckets record
+      // list of (global pointer PPtr = <region id, offset> + size of the bucket)
+      + totalNumberOfPartitions *(sizeof (uint64_t) + sizeof (uint64_t) + sizeof (int));
+
   //(2) aquite a region.the offset is part of the object data member.
   int generationId =ShuffleStoreManager::getInstance()->getGenerationId();
   ShuffleDataSharedMemoryManager *memoryManager =
@@ -200,7 +193,7 @@ MapStatus MapShuffleStoreWithLongKey::writeShuffleData() {
 
   //what gets returned is the virtual address in the currnt process
   RRegion::TPtr<void> indChunkGlobalPointer = memoryManager->allocate_indexchunk (indChunkSize);
-  if (SHMShuffleGlobalConstants::USING_RMB) { 
+  if (SHMShuffleGlobalConstants::USING_RMB) {
     if (indChunkGlobalPointer != global_null_ptr) {
       indChunkOffset = (unsigned char*) indChunkGlobalPointer.get();
 
@@ -209,19 +202,15 @@ MapStatus MapShuffleStoreWithLongKey::writeShuffleData() {
         <<  reinterpret_cast <void* > (ShuffleStoreManager::getInstance()->getProcessMap().first)
         << " ,"
         <<  reinterpret_cast <void* > (ShuffleStoreManager::getInstance()->getProcessMap().second);
-
-    }
-    else {
+    } else {
       indChunkOffset = nullptr;
       LOG(ERROR)<< "allocate index chunk returns global null pointer " << " for size: " << indChunkSize
-		<< " generation id: " << generationId;
+                << " generation id: " << generationId;
     }
-
-  }
-  else {
+  } else {
      indChunkOffset = reinterpret_cast<unsigned char*> (indChunkGlobalPointer.offset());
   }
-  
+
   //record the global pointer version of index chunk offset
   globalPointerIndChunkRegionId = indChunkGlobalPointer.region_id();
   globalPointerIndChunkOffset = indChunkGlobalPointer.offset();
@@ -233,16 +222,20 @@ MapStatus MapShuffleStoreWithLongKey::writeShuffleData() {
           << (void*) indChunkOffset <<  " with generation id: " << generationId;
 
   //the tobeserializedchunk offset --> map output tracker, and then --> the reducer side.
-  MapStatus  mapStatus (indChunkGlobalPointer.region_id(),
-                        indChunkGlobalPointer.offset(), totalNumberOfPartitions, mapId);
+  MapStatus mapStatus(indChunkGlobalPointer.region_id(),
+                      indChunkGlobalPointer.offset(), totalNumberOfPartitions, mapId);
   ShuffleDataSharedMemoryWriter  writer;
-  
+
   //(3) write header (only the key at this time)
+  int nodeId {OsUtil::getCurrentNumaNode()};
+  memcpy(indChunkOffset, &nodeId, sizeof(nodeId));
+  indChunkOffset += sizeof(nodeId);
+
   int keytypeId = KValueTypeId::Long;
   unsigned char *pic = writer.write_indexchunk_keytype_id(indChunkOffset, keytypeId);
   VLOG(2) << " write index chuunk keytype id: " << keytypeId;
 
-  //write value class size    
+  //write value class size
   pic = writer.write_indexchunk_size_valueclass(pic,sizeOfVCclassDefinition);
   VLOG(2) << " write index chunk vclass definition size  with size: " << sizeOfVCclassDefinition;
 
@@ -258,9 +251,9 @@ MapStatus MapShuffleStoreWithLongKey::writeShuffleData() {
   unsigned char  *toLogPicBucketSize=pic;
   pic = writer.write_indexchunk_number_total_buckets(pic, totalNumberOfPartitions);
   VLOG(2) << " write index chunk total number of buckets: " << totalNumberOfPartitions
-          << " at memory adress: " << (void*)toLogPicBucketSize; 
+          << " at memory adress: " << (void*)toLogPicBucketSize;
 
-  vector<int> partitionChunkSizes; 
+  vector<int> partitionChunkSizes;
   vector <RRegion::TPtr<void>> allocatedDataChunkOffsets;//global pointers.
   vector <unsigned char*> dataChunkOffsets; //local pointers.
 
@@ -268,22 +261,22 @@ MapStatus MapShuffleStoreWithLongKey::writeShuffleData() {
   for (int i =0; i<totalNumberOfPartitions; i++) {
      partitionChunkSizes.push_back(0);
      //PPtr's version of null pointer
-     allocatedDataChunkOffsets.push_back(global_null_ptr); 
-     dataChunkOffsets.push_back(nullptr); 
+     allocatedDataChunkOffsets.push_back(global_null_ptr);
+     dataChunkOffsets.push_back(nullptr);
   }
 
   //NOTE: keys only contain the partitions that have non-zero buckets.  Some partitions can be
-  //empty partition identifier will be from 0 to totalNumberOfPartitions-1 
+  //empty partition identifier will be from 0 to totalNumberOfPartitions-1
   //we will do the first scan to determine how many data chunks and their sizes that we need. 
-  size_t longkey_size=sizeof(long); 
+  size_t longkey_size=sizeof(long);
   size_t vvalue_size = sizeof(int);
 
   for (size_t p =0; p<sizeTracker; ++p) {
-    int partition = keys[p].partition; 
+    int partition = keys[p].partition;
     int currentSize = partitionChunkSizes[partition];
     //each bucket is the array of: <k long value, value-size, value-in-byte-array>
     currentSize +=(longkey_size + vvalue_size + keys[p].value_tracker.value_size);
-    partitionChunkSizes[partition]=currentSize; 
+    partitionChunkSizes[partition]=currentSize;
   }
 
   for (int i=0; i<totalNumberOfPartitions; i++ ) {
@@ -292,49 +285,45 @@ MapStatus MapShuffleStoreWithLongKey::writeShuffleData() {
     RRegion::TPtr<void> data_chunk (null_ptr) ; //it will be allocated as being the global null ptr. 
     if (partitionChunkSize > 0) {
       //data_chunk is the virtual address in current process.
-      data_chunk= 
-         	memoryManager->allocate_datachunk (partitionChunkSize);
-      if (SHMShuffleGlobalConstants::USING_RMB) { 
+      data_chunk=
+          memoryManager->allocate_datachunk (partitionChunkSize);
+      if (SHMShuffleGlobalConstants::USING_RMB) {
         CHECK (data_chunk != global_null_ptr)
                     << "allocate data chunk returns null with generation id: "<<generationId; 
-      }
-      else {
-	CHECK (reinterpret_cast<void*>(data_chunk.offset()) != nullptr) 
-	            << "allocate data chunk returns null with generatino id: "<<generationId;
+      } else {
+          CHECK (reinterpret_cast<void*>(data_chunk.offset()) != nullptr)
+              << "allocate data chunk returns null with generatino id: "<<generationId;
       }
 
       allocatedDataChunkOffsets[i]=data_chunk;
 
       if (VLOG_IS_ON(2)) {
-         if (SHMShuffleGlobalConstants::USING_RMB) { 
+         if (SHMShuffleGlobalConstants::USING_RMB) {
             VLOG(2) << "data chunk for partition: " << i << " with chunk size: " << partitionChunkSize
-		    <<" allocated with offset: " << (void*) data_chunk.get() ;
-	 }
-         else {
+                    <<" allocated with offset: " << (void*) data_chunk.get() ;
+         } else {
             VLOG(2) << "data chunk for partition: " << i << " with chunk size: " << partitionChunkSize
-		    <<" allocated with offset: " << (void*) reinterpret_cast<void*>(data_chunk.offset()) ;
-	 }
+                    <<" allocated with offset: " << (void*) reinterpret_cast<void*>(data_chunk.offset()) ;
+         }
       }
     }
 
-
    unsigned char  *toLogPic = pic;
-   
+
    //the global pointer to be written also encodes the local pointer with -1 being the region id
-   pic = writer.write_indexchunk_bucket(pic, 
+   pic = writer.write_indexchunk_bucket(pic,
                    data_chunk.region_id(), data_chunk.offset(), partitionChunkSize);
-   
+
    if (VLOG_IS_ON(2)) {
      if (data_chunk != global_null_ptr) {
        VLOG (2) << "write index chunk bucket for bucket: " << i <<  "with chunk size: " << partitionChunkSize
-		<< " and starting virtual memory of : " << (void*)data_chunk.get()
-		<< " at memory address: " <<  (void*)toLogPic;
-     }
-     else{
+                << " and starting virtual memory of : " << (void*)data_chunk.get()
+                << " at memory address: " <<  (void*)toLogPic;
+     } else{
        //NOTE: to check whether data_chunk.get() for (-1, -1) leads to the crash for the get() method.                                                           
        VLOG (2) << "write index chunk bucket for bucket: " << i <<  "with chunk size: " << partitionChunkSize
-		<< " and starting virtual memory of : " << (void*)nullptr
-		<< " at memory address: " <<  (void*)toLogPic;
+                << " and starting virtual memory of : " << (void*)nullptr
+                << " at memory address: " <<  (void*)toLogPic;
      }
    }
 
@@ -344,23 +333,21 @@ MapStatus MapShuffleStoreWithLongKey::writeShuffleData() {
   //initialize the local pointers using the allocated global pointers.
   for (int i =0; i<totalNumberOfPartitions; i++) {
      RRegion::TPtr<void> datachunk_offset= allocatedDataChunkOffsets[i];
-     unsigned char* local_ptr = nullptr; 
-     if (SHMShuffleGlobalConstants::USING_RMB) { 
+     unsigned char* local_ptr = nullptr;
+     if (SHMShuffleGlobalConstants::USING_RMB) {
         if (datachunk_offset != global_null_ptr) {
-	  local_ptr = (unsigned char*)datachunk_offset.get();
+            local_ptr = (unsigned char*)datachunk_offset.get();
 
-	  CHECK (ShuffleStoreManager::getInstance()->check_pmap((void*)local_ptr))
-	    << "address: " << (void*)local_ptr << " not in range: ("
-	    <<  reinterpret_cast <void* > (ShuffleStoreManager::getInstance()->getProcessMap().first)
-	    << " ,"
-	    <<  reinterpret_cast <void* > (ShuffleStoreManager::getInstance()->getProcessMap().second);
-	}
-        else {
-          //if datachunk_offset is a global null ptr, it will be resolved as nullptr.
-	  local_ptr = nullptr;
-	}
-     }
-     else {
+            CHECK (ShuffleStoreManager::getInstance()->check_pmap((void*)local_ptr))
+                << "address: " << (void*)local_ptr << " not in range: ("
+                <<  reinterpret_cast <void* > (ShuffleStoreManager::getInstance()->getProcessMap().first)
+                << " ,"
+                <<  reinterpret_cast <void* > (ShuffleStoreManager::getInstance()->getProcessMap().second);
+        } else {
+            //if datachunk_offset is a global null ptr, it will be resolved as nullptr.
+            local_ptr = nullptr;
+        }
+     } else {
        //if the partition size is empty, it will return offset -1 from intialized global pointer.
        //when allocatedDataChunkOffsets is initialized
        //since local_ptr will not be triggered when the partition size is empty, it should be OK.
@@ -370,27 +357,22 @@ MapStatus MapShuffleStoreWithLongKey::writeShuffleData() {
      dataChunkOffsets[i]=local_ptr;
   }
 
-  //now we will write data chunk one by one 
+  //now we will write data chunk one by one
   for (size_t p =0; p<sizeTracker; ++p) {
     //scan from the beginning to the end
-    //change to next partition if necessary 
-    int current_partition_number = keys[p].partition; 
+    //change to next partition if necessary
+    int current_partition_number = keys[p].partition;
     unsigned char *current_datachunk_offset = dataChunkOffsets[current_partition_number];
     if (current_datachunk_offset != nullptr) {
-      unsigned char  *ptr = current_datachunk_offset; 
+      unsigned char  *ptr = current_datachunk_offset;
       ptr = writer.write_datachunk_longkey((unsigned char*) ptr, keys[p].key, keys[p].value_tracker.value_size);
-      VLOG (2) << "write data chunk long key for key: " 
-	       << keys[p].key << " and value size: " << keys[p].value_tracker.value_size;
+      VLOG (2) << "write data chunk long key for key: "
+               << keys[p].key << " and value size: " << keys[p].value_tracker.value_size;
       //retrieve data to data chunk from the buffer manager's managed bytebuffers. 
       bufferMgr.retrieve(keys[p].value_tracker, (unsigned char*)ptr);
       VLOG (2) << "buffer manager populated value to data chunk for key: " << keys[p].key 
-	       << " and value size: " << keys[p].value_tracker.value_size 
+               << " and value size: " << keys[p].value_tracker.value_size
                << " at memory address: " << (void*) ptr;
-
-      //for (int i=0; i<p->value_tracker.value_size; i++) {
-      // unsigned char v= *(ptr+i);
-      // VLOG(2) << "****NVM write at address: " << (void*) (ptr+i)<<  " with value: " << (int) v;
-      //}
 
       ptr += keys[p].value_tracker.value_size;
       dataChunkOffsets[current_partition_number] = ptr; //take it back for next key.
@@ -398,7 +380,7 @@ MapStatus MapShuffleStoreWithLongKey::writeShuffleData() {
   }
 
   //map status returns the information that later we can get back all of the written shuffle data.
-  return mapStatus; 
+  return mapStatus;
 }
 
 void MapShuffleStoreWithLongKey::stop(){
@@ -409,11 +391,11 @@ void MapShuffleStoreWithLongKey::stop(){
   bufferMgr.free_buffers(); //free the occupied values
 
   LOG(INFO) << "map shuffle store with long keys with map id: " << mapId << " stopped"
-            << " buffer pool size: " 
+            << " buffer pool size: "
             <<  ShuffleStoreManager::getInstance()->getByteBufferPool()->currentSize() <<endl;
 
   LOG(INFO) << "map shuffle store with long keys with map id: " << mapId << " stopped"
-            << " key pool size: " 
+            << " key pool size: "
             <<  ShuffleStoreManager::getInstance()->getKeyBufferPool(KValueTypeId::Long)->currentSize() <<endl;
 }
 
@@ -429,7 +411,7 @@ void MapShuffleStoreWithLongKey::shutdown(){
     ShuffleDataSharedMemoryManagerHelper::free_indexanddata_chunks(indChunkOffset,
                                                                    globalPointer, memoryManager);
   }
-  
+
   if (vvTypeDefinition.definition!=nullptr) {
       free (vvTypeDefinition.definition);
       vvTypeDefinition.definition = nullptr;
