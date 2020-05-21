@@ -23,7 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * This is per executor tracker on which shuffle id covers which map tasks on each executor, for a single job. 
  */
-public class ShuffleStoreTracker {
+class ShuffleStoreTracker {
 
     private final int DEFAULT_INITIAL_CAPACITY = 8;
     private int initialCapacity = DEFAULT_INITIAL_CAPACITY;
