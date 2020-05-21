@@ -184,20 +184,6 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
     public void stop() {
         LOG.info("store id " + this.storeId + " reduce-side shared-memory based shuffle store stopped with id:"
                 + this.shuffleId + "-" + this.reduceId);
-        
-        //to return shuffle related resource back to the tracker. 
-        //ThreadLocalShuffleResourceHolder holder = new ThreadLocalShuffleResourceHolder();
-        //ThreadLocalShuffleResourceHolder.ShuffleResource resource = holder.getResource();
-        //if (resource != null) {
-           //return it to the shuffle resource tracker
-	//  this.shuffleStoreManager.getShuffleResourceTracker().recycleSerializationResource(resource);
-        //}
-        //else {
-	// LOG.info("store id " + this.storeId + " reduce-side shared-memory based shuffle store stopped with id:"
-	//	    + this.shuffleId + "-" + this.reduceId + " has re-usable shuffle resource == null");
-	//}
-        
-        //then return the native resources as well. 
         if (this.pointerToStore != 0L) {
             nstop(this.pointerToStore);
         }

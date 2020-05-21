@@ -14,7 +14,6 @@
  * limitations under the License.
  *
  */
-
 package com.hp.hpl.firesteel.shuffle;
 
 import java.util.Arrays;
@@ -297,21 +296,6 @@ public class MapSHMShuffleStore implements MapShuffleStore {
     public void stop() {
         LOG.info( "store id " + this.storeId + " map-side shared-memory based shuffle store stopped with id:"
                 + this.shuffleId + "-" + this.mapTaskId);
-        //recycle the shuffle resource
-        //(1) retrieve the shuffle resource object from the thread specific storage
-        //(2) return it to the shuffle resource tracker
-        //ThreadLocalShuffleResourceHolder holder = new ThreadLocalShuffleResourceHolder();
-        //ThreadLocalShuffleResourceHolder.ShuffleResource resource = holder.getResource();
-        //if (resource != null) {
-           //return it to the shuffle resource tracker
-        //   this.shuffleStoreManager.getShuffleResourceTracker().recycleSerializationResource(resource);
-        //}
-        //else {
-        //    LOG.error( "store id " + this.storeId + " map-side shared-memory based shuffle store stopped with id:"
-	    //       + this.shuffleId + "-" + this.mapTaskId + " does not have recycle serialized resource");
-        //
-	    //}
-        //then stop the native resources as well. 
         nstop(this.pointerToStore);
     }
 
