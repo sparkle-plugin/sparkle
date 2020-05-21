@@ -14,16 +14,14 @@
  * limitations under the License.
  *
  */
-
 package com.hp.hpl.firesteel.shuffle;
 
+import java.nio.ByteBuffer;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 
 import com.esotericsoftware.kryo.Kryo;
-import java.nio.ByteBuffer;
 
-import sun.misc.Cleaner;
-import java.lang.reflect.Field;
- 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,40 +48,38 @@ public class ThreadLocalShuffleResourceHolder {
 	 * by combining these two resources, we will have it to be freed out when the Map or reduce Task is done.
 	 *
 	 */
-	public static class ReusableSerializationResource {
-		private Kryo kryo;
-		private ByteBuffer buffer; 
-		
-		public ReusableSerializationResource  (Kryo kryoInstance, ByteBuffer bufferInstance) {
-			this.kryo = kryoInstance;
-			this.buffer = bufferInstance; 
-		}
-		
-		public Kryo  getKryoInstance() {
-			return this.kryo;
-		}
-		
-		public ByteBuffer getByteBuffer() {
-			return this.buffer; 
-		}
-		
-		public void freeResource() {
-			try {
-				if ( (buffer != null) && (buffer.isDirect())) {
-				  Field cleanerField = buffer.getClass().getDeclaredField("cleaner");
-			      cleanerField.setAccessible(true);
-			      Cleaner cleaner = (Cleaner) cleanerField.get(buffer);
-			      cleaner.clean();
-				}
-			}
-			catch (Exception ex) {
-			   LOG.error("fails to free shuffle resource.", ex);
-			}
-			
-		}
-	}
-	
-	
+    public static class ReusableSerializationResource {
+        private Kryo kryo;
+        private ByteBuffer buffer; 
+    
+        public ReusableSerializationResource  (Kryo kryoInstance, ByteBuffer bufferInstance) {
+            this.kryo = kryoInstance;
+            this.buffer = bufferInstance; 
+        }
+    
+        public Kryo  getKryoInstance() {
+            return this.kryo;
+        }
+    
+        public ByteBuffer getByteBuffer() {
+            return this.buffer; 
+        }
+
+        public void freeResource() {
+            try {
+                if ( (buffer != null) && (buffer.isDirect())) {
+                    Field cleanerField = buffer.getClass().getDeclaredField("cleaner");
+                    cleanerField.setAccessible(true);
+                    Object cleaner = cleanerField.get(buffer);
+                    Method cleanerMethod = cleaner.getClass().getMethod("clean");
+                    cleanerMethod.invoke(cleaner, null);
+                }
+            } catch (Exception ex) {
+                LOG.error("fails to free shuffle resource.", ex);
+            }
+        }
+    }
+
 	public static class ShuffleResource {
 		private ReusableSerializationResource serializationResource; 
 		

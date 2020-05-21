@@ -296,7 +296,7 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
 
     var partitionLengths = new Array[Int](numberOfPartitions)
     for (id <- partitionedBuffer.keySet.toSeq.sorted) {
-      var firstPos = output.getByteBuffer.position
+      var firstPos = output.getByteBuffer.position()
 
       var it = partitionedBuffer(id).iterator
       while (it.hasNext) {
@@ -306,7 +306,7 @@ private[spark] class ShmShuffleWriter[K, V]( shuffleStoreMgr:ShuffleStoreManager
         kryo.writeClassAndObject(output, value)
       }
 
-      partitionLengths(id) = output.getByteBuffer.position - firstPos
+      partitionLengths(id) = output.getByteBuffer.position() - firstPos
     }
 
     val res = mapShuffleStore.writeToHeap(output.getByteBuffer, partitionLengths)
