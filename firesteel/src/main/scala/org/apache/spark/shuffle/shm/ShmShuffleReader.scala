@@ -120,11 +120,19 @@ private[spark] class ShmShuffleReader[K, C](shuffleStoreMgr:ShuffleStoreManager,
     val aggregatedIter: Iterator[Product2[K, C]] = if (dep.aggregator.isDefined) {
       logInfo("ShmShuffleReader, aggregated result for downstream processing")
 
-      val keyValuesIterator = iter.asInstanceOf[Iterator[(K, Nothing)]]
+      val keyValuesIterator = iter.asInstanceOf[Iterator[(K, Seq[Nothing])]]
 
-      // NOTE: Pairs are already aggregated in ShmShuffle so that
-      //       combineValuesByKey just casts the class.
-      dep.aggregator.get.combineValuesByKey(keyValuesIterator, context)
+      keyValuesIterator.map(keyValues => {
+        val valueIter = keyValues._2.iterator
+
+        var combinedValue = dep.aggregator.get.createCombiner(valueIter.next)
+        while (valueIter.hasNext) {
+          combinedValue =
+            dep.aggregator.get.mergeValue(combinedValue, valueIter.next)
+        }
+
+        (keyValues._1, combinedValue)
+      })
     } else if (dep.aggregator.isEmpty && dep.mapSideCombine) {
       throw new IllegalStateException("Aggregator is empty for map-side combine")
     } else {
@@ -138,7 +146,12 @@ private[spark] class ShmShuffleReader[K, C](shuffleStoreMgr:ShuffleStoreManager,
       iter.asInstanceOf[Iterator[Product2[K, C]]]
     }
 
-    aggregatedIter
+    aggregatedIter match {
+      case _: InterruptibleIterator[Product2[K, C]] => aggregatedIter
+      case _ =>
+        // Use another interruptible iterator here to support task cancellation as aggregator.
+        new InterruptibleIterator[Product2[K, C]](context, aggregatedIter)
+    }
   }
 
   def stop(): Unit = {
