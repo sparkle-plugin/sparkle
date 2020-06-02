@@ -22,11 +22,13 @@ import java.util.ArrayList;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.Comparator;
+import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.nio.ByteBuffer;
 
 import scala.Tuple2;
 import scala.collection.Iterator;
+import scala.collection.JavaConverters;
 
 import org.apache.spark.util.ByteBufferInputStream;
 import org.apache.spark.serializer.Serializer;
@@ -645,7 +647,8 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
                                          byteBuffer.capacity(), Integer.MAX_VALUE, mergeResult);
 
         if (actualKVPairs == 0) {
-            return null;
+            return JavaConverters
+                .asScalaIterator(Collections.emptyIterator());
         }
 
         readMetrics.setLbuckets(mergeResult.getNumLocalBucketsRead());

@@ -62,6 +62,10 @@ void PassThroughReduceEngineWithIntKeys::init() {
     currentChannelIndex =0;
     sizeOfChannels = passThroughReduceChannels.size();
 
+    if (sizeOfChannels <= 0) {
+      return;
+    }
+
     if (passThroughReduceChannels[0].isSameNode()) {
         localBucketsRead++;
     } else {
