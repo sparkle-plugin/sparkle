@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.Comparator;
 import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.io.ByteArrayInputStream;
 import java.nio.ByteBuffer;
 
 import scala.Tuple2;
@@ -159,18 +160,21 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
     private Object[] kvPairMapKeys;
 
     @Override
-    public void initialize (int shuffleId, int reduceId, int numberOfPartitions, boolean ordering, boolean aggregation) {
+    public void initialize(int shuffleId, int reduceId, int numberOfPartitions, boolean ordering, boolean aggregation) {
         this.shuffleId = shuffleId;
         this.reduceId= reduceId;
         this.numberOfPartitions = numberOfPartitions;
         //defer its use until merge-sort.
-        this.ordering = ordering; 
+        this.ordering = ordering;
         //defer its use until merge, to decide whether we will have straight-forward pass through
-        this.aggregation = aggregation; 
-        
+        this.aggregation = aggregation;
+
         ninitialize(this.shuffleStoreManager.getPointer(), shuffleId, reduceId, numberOfPartitions);
-        LOG.info("store id " +  this.storeId + " reduce-side shared-memory based shuffle store started with id:"
-                                                      + this.shuffleId + "-" + this.reduceId);
+
+        // FIXME: this record appears twice...
+        // stores are acceidentally initialized twice?
+        LOG.info(String.format("initialized store[%d] for reducer[%d] in shuffle[%d]",
+                               this.storeId, this.reduceId, this.shuffleId));
     }
 
     //NOTE: the key type and value type definition goes through the shuffle channel in C++. We do not need
@@ -184,8 +188,9 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
     //reduce shuffle store gets created.
     @Override
     public void stop() {
-        LOG.info("store id " + this.storeId + " reduce-side shared-memory based shuffle store stopped with id:"
-                + this.shuffleId + "-" + this.reduceId);
+        LOG.info(String.format("stop store[%d] for reducer[%d] in shuffle[%d]",
+                               this.storeId, this.reduceId, this.shuffleId));
+
         if (this.pointerToStore != 0L) {
             nstop(this.pointerToStore);
         }
@@ -197,8 +202,9 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
 
     @Override
     public void shutdown (){
-        LOG.info("store id " + this.storeId + "reduce-side shared-memory based shuffle store shutdown with id:"
-                         + this.shuffleId + "-" + this.reduceId);
+        LOG.info(String.format("shutdown store[%d] for reducer[%d] in shuffle[%d]",
+                               this.storeId, this.reduceId, this.shuffleId));
+
         nshutdown(this.shuffleStoreManager.getPointer(), this.pointerToStore);
     }
 
@@ -657,13 +663,15 @@ public class ReduceSHMShuffleStore implements ReduceShuffleStore {
         readMetrics.setRbytes(mergeResult.getBytesRemoteBucketsRead());
 
         int[] pvVOffsets =mergeResult.getVoffsets();
-        byteBuffer.limit(pvVOffsets[actualKVPairs -1]);
-        LOG.info(String.format("reducerId[%d]: %d pairs(%d bytes) fetched"
+        byteBuffer.limit(pvVOffsets[actualKVPairs-1]);
+        LOG.info(String.format("reducer[%d]: %d pairs(%d bytes) fetched"
                                , reduceId, actualKVPairs
                                , byteBuffer.limit()));
 
+        byte[] rows = new byte[byteBuffer.limit()];
+        byteBuffer.get(rows, 0, byteBuffer.limit());
         return this.unsafeRowSerializer
-            .deserializeStream(new ByteBufferInputStream(byteBuffer))
+            .deserializeStream(new ByteArrayInputStream(rows))
             .asKeyValueIterator();
     }
 
