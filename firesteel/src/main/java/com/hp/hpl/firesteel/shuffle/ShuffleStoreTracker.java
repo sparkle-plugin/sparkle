@@ -144,7 +144,8 @@ class ShuffleStoreTracker {
      */
     private static class ThreadBasedTracker {
         //the SimpleEntry has the pair of the map id, and the corresponding reference to MapSHMShuffleStore
-        private  ArrayList<PerThreadShuffleStoreTracker> slots;
+        private ArrayList<PerThreadShuffleStoreTracker> slots;
+        private boolean cleared = false;
 
         /**
          * This is invoked when the shuffle store manager is started.
@@ -163,42 +164,62 @@ class ShuffleStoreTracker {
          * clear all of the map-shufle store being tracker across each thread, and for all the threads. 
          */
         public void clear() {
-            for (int i=0; i<this.slots.size(); i++) {
-                PerThreadShuffleStoreTracker tracker = this.slots.get(i);
-                if (tracker != null) {
-                    tracker.clear();
+            synchronized (this) {
+                for (int i=0; i<this.slots.size(); i++) {
+                    PerThreadShuffleStoreTracker tracker = this.slots.get(i);
+                    if (tracker != null) {
+                        tracker.clear();
+                    }
                 }
+
+                this.slots.clear();
+                this.cleared = true;
             }
-            this.slots.clear();
         }
 
         public void add(int logicalThreadId,  MapSHMShuffleStore store) {
             // Consider thread timeout and task failure in the Executor process
             // which increase logicalThreadId.
-            while (this.slots.size() <= logicalThreadId) {
-                this.slots.add(null);
-            }
 
-            PerThreadShuffleStoreTracker perThreadTracker =
-                this.slots.get(logicalThreadId);
-            if (perThreadTracker == null) {
-                //create the entry in a lazy way
-                perThreadTracker = new PerThreadShuffleStoreTracker();
-                this.slots.set(logicalThreadId, perThreadTracker);
-            }
+            synchronized (this) {
+                if (this.cleared) {
+                    // This shuffle has already been unregistered.
+                    return ;
+                }
 
-            //use the non-null per-thread-tracker to track the store.
-            perThreadTracker.track(store);
+                while (this.slots.size() <= logicalThreadId) {
+                    this.slots.add(null);
+                }
+
+                PerThreadShuffleStoreTracker perThreadTracker =
+                    this.slots.get(logicalThreadId);
+                if (perThreadTracker == null) {
+                    //create the entry in a lazy way
+                    perThreadTracker = new PerThreadShuffleStoreTracker();
+                    this.slots.set(logicalThreadId, perThreadTracker);
+                }
+
+                //use the non-null per-thread-tracker to track the store.
+                perThreadTracker.track(store);
+            }
         }
 
         public ArrayList<MapSHMShuffleStore> gatherShuffleStore() {
             ArrayList<MapSHMShuffleStore> retrievedStore = new ArrayList<>();
-            for (int i=0; i<this.slots.size(); i++) {
-                PerThreadShuffleStoreTracker tracker = this.slots.get(i);
-                if ( (tracker != null) && (tracker.size() > 0)){
-                    tracker.gatherShuffleStore(retrievedStore);
+
+            synchronized (this) {
+                if (this.cleared) {
+                    return retrievedStore;
+                }
+
+                for (int i=0; i<this.slots.size(); i++) {
+                    PerThreadShuffleStoreTracker tracker = this.slots.get(i);
+                    if ( (tracker != null) && (tracker.size() > 0)){
+                        tracker.gatherShuffleStore(retrievedStore);
+                    }
                 }
             }
+
             return retrievedStore;
         }
     }
