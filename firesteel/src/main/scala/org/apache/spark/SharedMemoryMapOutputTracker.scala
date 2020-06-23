@@ -51,7 +51,7 @@ object SharedMemoryMapOutputTracker {
       val method =
         mapOutputTracker.getClass.getDeclaredMethod("getStatuses", classOf[Int])
       method.setAccessible(true)
-      method.invoke(mapOutputTracker, new JInt(shuffleId)).asInstanceOf[Array[MapStatus]]
+      method.invoke(mapOutputTracker, JInt.valueOf(shuffleId)).asInstanceOf[Array[MapStatus]]
     } catch {
       case NonFatal(e) => {
         throw new SparkException("MapOutputTracker getStatuses invoke error", e)

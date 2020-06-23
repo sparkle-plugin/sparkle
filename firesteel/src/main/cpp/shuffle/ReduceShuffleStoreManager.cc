@@ -182,6 +182,11 @@ void ReduceShuffleStoreManager::stopShuffleStore(GenericReduceShuffleStore *stor
 }
 
 void ReduceShuffleStoreManager::shutdownShuffleStore(GenericReduceShuffleStore *store) {
+  if (store == nullptr) {
+    DLOG(INFO) << "ReduceShuffleStore is already null.";
+    return ;
+  }
+
   DLOG(INFO) << "delete ReduceShuffleStore: " << store->shuffleId;
   store->shutdown();
 
@@ -207,5 +212,3 @@ void ReduceShuffleStoreManager::shutdown () {
     //do nothing at this time.
   }
 }
-
-

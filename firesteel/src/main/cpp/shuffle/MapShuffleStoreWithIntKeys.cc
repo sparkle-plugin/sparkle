@@ -15,7 +15,12 @@
  *
  */
 
+#include <algorithm>
+#include <chrono>
+#include <stdlib.h>
+
 #include <glog/logging.h>
+
 #include "ShuffleStoreManager.h"
 #include "MapShuffleStoreWithIntKeys.h"
 #include "ShuffleConstants.h"
@@ -26,9 +31,6 @@
 #include "ArrayBufferPool.h"
 #include "MapStatus.h"
 #include "SimpleUtils.h"
-
-#include <algorithm>
-#include <stdlib.h>
 
 //for int key comparision 
 struct MapShuffleComparatorWithIntKey {
@@ -182,15 +184,15 @@ MapStatus MapShuffleStoreWithIntKey::writeShuffleData() {
   //if the parition size is  0, then value type definition is 0. 
   //CHECK(sizeOfVCclassDefinition > 0);
 
-  //first one is integer key value, second one is the value size record in one integer,
-  //third one is actual value class definition in bytes
-  //fourth one is total number of buckets record in one integer.
-  //the fifth one is list of (global pointer PPtr = <region id, offset> + size of the bucket)
-  //NOTE: this layout does not support arbitrary key value definition.
-  size_t  indChunkSize = sizeof (int) + sizeof(int)  
-         + sizeOfVCclassDefinition  
-         + sizeof(int)
-         + totalNumberOfPartitions *(sizeof (uint64_t) + sizeof (uint64_t) + sizeof (int));
+  // NOTE: this layout does not support arbitrary key value definition.
+  size_t  indChunkSize =
+    sizeof(int) // NUMA node id
+    + sizeof (int) // integer key value
+    + sizeof(int) // the value size record
+    + sizeOfVCclassDefinition // actual value class definition in bytes
+    + sizeof(int) // total number of buckets record
+    // list of (global pointer PPtr = <region id, offset> + size of the bucket)
+    + totalNumberOfPartitions * (sizeof (uint64_t) + sizeof (uint64_t) + sizeof (int));
    
   //(2) retrieve a generation
   int generationId =ShuffleStoreManager::getInstance()->getGenerationId();
@@ -214,8 +216,7 @@ MapStatus MapShuffleStoreWithIntKey::writeShuffleData() {
       LOG(ERROR)<< "allocate index chunk returns global null pointer " << " for size: " << indChunkSize
 		<< " generation id: " << generationId;
     }
-  }
-  else {
+  } else {
      indChunkOffset = reinterpret_cast<unsigned char*> (indChunkGlobalPointer.offset());
   }
   
@@ -234,6 +235,10 @@ MapStatus MapShuffleStoreWithIntKey::writeShuffleData() {
   ShuffleDataSharedMemoryWriter  writer; 
   
   //(3) write header (only the key at this time)
+  int nodeId {OsUtil::getCurrentNumaNode()};
+  memcpy(indChunkOffset, &nodeId, sizeof(nodeId));
+  indChunkOffset += sizeof(nodeId);
+
   int keytypeId = KValueTypeId::Int;
   unsigned char *pic = writer.write_indexchunk_keytype_id(indChunkOffset, keytypeId);
   VLOG(2) << " write index chunk keytype id: " << keytypeId;
@@ -365,7 +370,8 @@ MapStatus MapShuffleStoreWithIntKey::writeShuffleData() {
      dataChunkOffsets[i]=local_ptr;
   }
 
-  //now we will write data chunk one by one 
+  // now we will write data chunk one by one
+  auto start = chrono::system_clock::now();
   for (size_t p =0; p<sizeTracker; ++p) {
     //scan from the beginning to the end
     //change to next partition if necessary 
@@ -376,21 +382,19 @@ MapStatus MapShuffleStoreWithIntKey::writeShuffleData() {
       ptr = writer.write_datachunk_intkey((unsigned char*) ptr, keys[p].key, keys[p].value_tracker.value_size);
       VLOG (2) << "write data chunk int key for key: " 
 	       << keys[p].key << " and value size: " << keys[p].value_tracker.value_size;
+
       //retrieve data to data chunk from the buffer manager's managed bytebuffers. 
       bufferMgr.retrieve(keys[p].value_tracker, (unsigned char*)ptr);
       VLOG (2) << "buffer manager populated value to data chunk for key: " << keys[p].key 
 	       << " and value size: " << keys[p].value_tracker.value_size 
                << " at memory address: " << (void*) ptr;
 
-      //for (int i=0; i<p->value_tracker.value_size; i++) {
-      // unsigned char v= *(ptr+i);
-      // VLOG(2) << "****NVM write at address: " << (void*) (ptr+i)<<  " with value: " << (int) v;
-      //}
-
       ptr += keys[p].value_tracker.value_size;
       dataChunkOffsets[current_partition_number] = ptr; //take it back for next key.
     }
   }
+  auto end = chrono::system_clock::now();
+  mapStatus.setWrittenTime(chrono::duration_cast<chrono::nanoseconds>(end - start).count());
 
   //map status returns the information that later we can get back all of the written shuffle data.
   return mapStatus; 

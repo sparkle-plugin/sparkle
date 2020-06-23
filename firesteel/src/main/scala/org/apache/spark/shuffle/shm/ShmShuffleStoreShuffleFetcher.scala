@@ -17,16 +17,18 @@
 
 package org.apache.spark.shuffle.shm
 
+import scala.collection.mutable.HashMap
+import scala.collection.mutable.ArrayBuffer
+
+import org.apache.spark.{SharedMemoryMapOutputTracker, InterruptibleIterator, SparkEnv, TaskContext}
+import org.apache.spark.{MapOutputTracker, MapOutputTrackerMaster}
 import org.apache.spark.internal.Logging
 import org.apache.spark.util.CompletionIterator
-import org.apache.spark.{SharedMemoryMapOutputTracker, InterruptibleIterator, SparkEnv, TaskContext}
+import org.apache.spark.util.Utils
 import org.apache.spark.serializer.Serializer
 import org.apache.spark.storage.ShuffleBlockFetcherIterator
-import scala.collection.mutable.HashMap
 import org.apache.spark.storage.{BlockId, BlockManagerId, ShuffleBlockId}
-import scala.collection.mutable.ArrayBuffer
-import org.apache.spark.util.Utils
-import org.apache.spark.{MapOutputTracker, MapOutputTrackerMaster}
+import org.apache.spark.sql.catalyst.expressions.UnsafeRow
 
 import com.hp.hpl.firesteel.shuffle.ReduceSHMShuffleStore
 
@@ -34,13 +36,13 @@ import com.hp.hpl.firesteel.shuffle.ReduceSHMShuffleStore
  * to support fetching of serialized data from the natice C++ shuffle store
  */
 private[spark] object ShmShuffleStoreShuffleFetcher extends Logging {
-  def fetch[T](
+  def fetch(
                 reduceShuffleStore: ReduceSHMShuffleStore,
                 shuffleId: Int,
                 reduceId: Int,
                 ordering:Boolean, aggregation:Boolean,
                 context: TaskContext)
-  : Iterator[T] = {
+  : InterruptibleIterator[(Any, Any)] = {
 
     //contact the MapOutputTracker to get the corresponding information about map results
     logInfo("Fetching shm-shuffle outputs for shuffle %d, reduce %d".format(shuffleId, reduceId))
@@ -76,23 +78,44 @@ private[spark] object ShmShuffleStoreShuffleFetcher extends Logging {
       }
     }
 
-    val blockFetcherItr = if (aggregation) {
+    val readMetrics =
+      context.taskMetrics.createTempShuffleReadMetrics
+
+    val blockFetcherItr = if (reduceShuffleStore.isUnsafeRow) {
+      new ShmShuffleUnsafeRowFetcher(
+        context,
+        statuses,
+        reduceShuffleStore,
+        readMetrics
+      ).toIterator
+    } else if (aggregation) {
       new ShmShuffleFetcherKeyValuesIterator(
         context,
         statuses,
-        reduceShuffleStore)
-    }
-    else {
+        reduceShuffleStore,
+        readMetrics)
+    } else {
       new ShmShuffleFetcherKeyValueIterator (
         context,
         statuses,
-        reduceShuffleStore)
+        reduceShuffleStore,
+        readMetrics)
     }
 
-    //the update shuffle read metetrics will zero. shm-shuffle will have its own meterics later.
-    val completionIter = CompletionIterator[T, Iterator[T]](
-      blockFetcherItr.asInstanceOf[Iterator[T]], { })
+    val completionIter = CompletionIterator[(Any, Any), Iterator[(Any, Any)]](
+      blockFetcherItr.map({record => {
+        if (record._2.isInstanceOf[Seq[Any]]) {
+          readMetrics.incRecordsRead(
+            record._2.asInstanceOf[Seq[Any]].length)
+        } else {
+          readMetrics.incRecordsRead(1)
+        }
 
-    new InterruptibleIterator[T](context, completionIter)
+        record
+      }}),
+      // TODO: It might be better to merge stop/shutdown stores here.
+      context.taskMetrics.mergeShuffleReadMetrics())
+
+    new InterruptibleIterator[(Any, Any)](context, completionIter)
   }
 }

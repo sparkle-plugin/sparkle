@@ -25,6 +25,7 @@ import com.hp.hpl.firesteel.shuffle.ShuffleDataModel
 import org.apache.spark.TaskContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.storage.{BlockId, BlockManagerId, ShuffleBlockId}
+import org.apache.spark.executor.TempShuffleReadMetrics
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -45,8 +46,10 @@ import java.lang.{String => JString}
  */
 private[spark] class ShmShuffleFetcherKeyValueIterator
 (context: TaskContext,
- statuses: Seq[(BlockId, Long, Long, Long, Boolean)],
- reduceShuffleStore: ReduceSHMShuffleStore)
+  statuses: Seq[(BlockId, Long, Long, Long, Boolean)],
+  reduceShuffleStore: ReduceSHMShuffleStore,
+  shuffleMetrics: TempShuffleReadMetrics
+)
   extends Iterator[(Any, Any)] with Logging {
 
   //this parameter will be set as a configuration parameter later.
@@ -75,9 +78,6 @@ private[spark] class ShmShuffleFetcherKeyValueIterator
   private val skvalues = new ArrayList[JString]()
   private val bakvalues = new ArrayList[Array[Byte]]()
   private val okvalues = new ArrayList[Object]()
-
-  private val shuffleMetrics =
-    context.taskMetrics().createTempShuffleReadMetrics()
 
   initialize()
 
@@ -120,11 +120,6 @@ private[spark] class ShmShuffleFetcherKeyValueIterator
       shuffleMetrics.incLocalBytesRead(reduceStatus.getBytesDataChunks)
       shuffleMetrics.incRemoteBlocksFetched(reduceStatus.getNumRemoteDataChunks)
       shuffleMetrics.incRemoteBytesRead(reduceStatus.getBytesRemoteDataChunks)
-
-      // If jvm callback enabled, the status contains # of records read from buckets.
-      if (reduceShuffleStore.getEnableJniCallback) {
-        shuffleMetrics.incRecordsRead(reduceStatus.getNumRecords)
-      }
     }
 
     fetchRound=0
@@ -259,11 +254,6 @@ private[spark] class ShmShuffleFetcherKeyValueIterator
         }
         actualPairs= reduceShuffleStore.getSimpleKVPairs(
           okvalues, vvalues,SHUFFLE_MERGED_KEYVALUE_PAIRS_RETRIEVAL_SIZE)
-
-        // If jvm callbacks disabled, we can see # of records after deserialization.
-        if (!reduceShuffleStore.getEnableJniCallback) {
-          shuffleMetrics.incRecordsRead(actualPairs)
-        }
 
         //now, push the data to the kvbuffer.
         for (i <- 0 to actualPairs-1) {

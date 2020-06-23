@@ -132,10 +132,10 @@ class  ReduceShuffleStoreWithIntKey: public GenericReduceShuffleStore {
      	     mergedResultHolder.reset();
 	 }
 
-	 //to reset the pass-throgh result's position pointer
-         void reset_passthroughresult(){
-     	     passThroughResultHolder.reset();
-	 }
+         //to reset the pass-throgh result's position pointer
+         void reset_passthroughresult() {
+             passThroughResultHolder.reset();
+         }
 
          MergeSortReduceEngineWithIntKeys& getMergeSortEngine() {
 	    return theMergeSortEngine;  

@@ -151,7 +151,7 @@ void HashMapReduceEngineWithIntKeys::getNextKeyValuesPair(
     //then traverse the position tracker to go back to the link list.
     totalRetrievedKeyElements ++;
 
-    hashMapIterator++;
+    ++hashMapIterator;
   }
 }
 

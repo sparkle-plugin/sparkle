@@ -14,16 +14,20 @@
  * limitations under the License.
  *
  */
-
 package com.hp.hpl.firesteel.shuffle;
 
-
-import com.esotericsoftware.kryo.Kryo;
-import com.esotericsoftware.kryo.io.ByteBufferOutput;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import scala.reflect.ClassTag$;
+
+import org.apache.spark.serializer.SerializationStream;
+import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
+
+import com.esotericsoftware.kryo.Kryo;
+import com.esotericsoftware.kryo.io.ByteBufferOutput;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -201,6 +205,19 @@ public class MapSHMShuffleStore implements MapShuffleStore {
         LOG.info("Jni Callback: " + this.enableJniCallback);
     }
 
+    public boolean isUnsafeRow = false;
+
+    private SerializationStream unsafeRowSerializationStream = null;
+
+    public void setUnsafeRowSerializer(SerializationStream ss) {
+        this.unsafeRowSerializationStream = ss;
+    }
+
+    public void finalizeUnsafeRowSerializer() {
+        this.unsafeRowSerializationStream.close();
+        this.unsafeRowSerializationStream = null;
+    }
+
     /**
      * to initialize the storage space for a particular shuffle stage's map instance
      * @param shuffleId the current stage id
@@ -279,21 +296,6 @@ public class MapSHMShuffleStore implements MapShuffleStore {
     public void stop() {
         LOG.info( "store id " + this.storeId + " map-side shared-memory based shuffle store stopped with id:"
                 + this.shuffleId + "-" + this.mapTaskId);
-        //recycle the shuffle resource
-        //(1) retrieve the shuffle resource object from the thread specific storage
-        //(2) return it to the shuffle resource tracker
-        //ThreadLocalShuffleResourceHolder holder = new ThreadLocalShuffleResourceHolder();
-        //ThreadLocalShuffleResourceHolder.ShuffleResource resource = holder.getResource();
-        //if (resource != null) {
-           //return it to the shuffle resource tracker
-        //   this.shuffleStoreManager.getShuffleResourceTracker().recycleSerializationResource(resource);
-        //}
-        //else {
-        //    LOG.error( "store id " + this.storeId + " map-side shared-memory based shuffle store stopped with id:"
-	    //       + this.shuffleId + "-" + this.mapTaskId + " does not have recycle serialized resource");
-        //
-	    //}
-        //then stop the native resources as well. 
         nstop(this.pointerToStore);
     }
 
@@ -312,17 +314,34 @@ public class MapSHMShuffleStore implements MapShuffleStore {
 
     private native void nshutdown(long ptrToMgr, long ptrToStore);
 
-    //for key = int, value = object 
-    protected  void serializeVInt (int kvalue, Object vvalue, int partitionId, int indexPosition) {
-    	
-    	this.nkvalues[indexPosition] = kvalue;
-        this.npartitions[indexPosition] = partitionId;
+    //for key = int, value = object
+    protected void serializeVInt (int kvalue, Object vvalue, int partitionId, int indexPosition) {
+        this.nkvalues[indexPosition] = kvalue;
         //serialize v into the bytebuffer. serializer has been initialized already.
-        this.serializer.writeObject(vvalue);
-        ByteBuffer currentVBuf = this.serializer.getByteBuffer();
+        ByteBuffer currentVBuf = this.isUnsafeRow
+            ? this.serializer.originalBuffer
+            : this.serializer.getByteBuffer();
+
+        if (this.isUnsafeRow) {
+            this.npartitions[indexPosition] = kvalue;
+
+            // If not set limit manually, some map tasks raise BufferOverflowException.
+            int newLimit =
+                currentVBuf.limit()
+                + ((UnsafeRow) vvalue).getSizeInBytes() + Integer.BYTES;
+            currentVBuf.limit(Integer.min(newLimit, currentVBuf.capacity()));
+
+            this.unsafeRowSerializationStream
+                .writeValue(vvalue, ClassTag$.MODULE$.Object());
+            this.unsafeRowSerializationStream.flush();
+        } else {
+            this.npartitions[indexPosition] = partitionId;
+
+            this.serializer.writeObject(vvalue);
+        }
         this.voffsets[indexPosition]= currentVBuf.position();
     }
-    
+
     //for key = float, value = object 
     protected void serializeVFloat (float kvalue, Object vvalue, int partitionId, int indexPosition) {
     	
@@ -382,14 +401,14 @@ public class MapSHMShuffleStore implements MapShuffleStore {
         this.voffsets[indexPosition]= currentVBuf.position();
      }
 
-     @Override 
+     @Override
      public void serializeKVPair (Object kvalue, Object vvalue, int partitionId, int indexPosition, int scode) {
-          //rely on Java to generate fast switch statement. 
-    	  switch (scode) {
-    	    case 0: 
-		 serializeVInt (((Integer)kvalue).intValue(), vvalue, partitionId,  indexPosition); 
-    	    	 break;
-    	    case 1: 
+          //rely on Java to generate fast switch statement.
+         switch (scode) {
+         case 0:
+             serializeVInt(((Integer)kvalue).intValue(), vvalue, partitionId,  indexPosition); 
+             break;
+         case 1:
 		 serializeVLong (((Long)kvalue).longValue(), vvalue, partitionId,  indexPosition);
     	    	 break;
     	    case 2:

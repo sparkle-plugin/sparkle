@@ -36,6 +36,7 @@ protected:
 	unsigned char *currentPtr; 
 	int totalBytesScanned; //the length scanned so far 
 	int totalLength;  //the total length
+	bool sameNode {false};
 
 public: 
 	
@@ -65,6 +66,9 @@ public:
 	 */
 	virtual void shutdown();
 
+	inline bool isSameNode() {
+	  return sameNode;
+	}
 };
 
 #endif /*_GENERIC_REDUCE_CHANNEL_H_*/

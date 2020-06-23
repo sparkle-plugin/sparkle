@@ -38,7 +38,6 @@ public class ShuffleStoreManager {
 
     private long pointerToShuffleManager =0;
     private ShuffleStoreTracker shuffleStoreTracker = null; 
-    private ShuffleResourceTracker shuffleResourceTracker = null; 
 
     private boolean initialized =false;
     private boolean shutdown =false;
@@ -106,7 +105,6 @@ public class ShuffleStoreManager {
             LOG.info("perform actual initialization for ShuffleStoreManager");
 
             this.shuffleStoreTracker = new ShuffleStoreTracker(maximumNumberOfThreads);
-            this.shuffleResourceTracker = new ShuffleResourceTracker(); 
             this.pointerToShuffleManager = ninitialize(globalHeapName,  executorId);
             initialized = true;
         }
@@ -121,11 +119,7 @@ public class ShuffleStoreManager {
     public ShuffleStoreTracker getShuffleStoreTracker() {
     	return this.shuffleStoreTracker;
     }
-    
-    public ShuffleResourceTracker getShuffleResourceTracker() {
-    	return this.shuffleResourceTracker; 
-    }
-    
+
     /**
      * initialize the store manager, and get back the pointer of the manager.
      * @return
@@ -142,8 +136,7 @@ public class ShuffleStoreManager {
 	if (initialized) {
            if (!shutdown) {
               shutdown(this.pointerToShuffleManager);
-            
-              this.shuffleResourceTracker.shutdown();
+
               this.shuffleStoreTracker.shutdown();
 
               shutdown = true;

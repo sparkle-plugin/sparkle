@@ -106,90 +106,92 @@ public:
 
 class PassThroughReduceEngineWithIntKeys {
 private:
-	vector <PassThroughReduceChannelWithIntKeys>  passThroughReduceChannels;
-	int reduceId;
-	int totalNumberOfPartitions;  
+    vector <PassThroughReduceChannelWithIntKeys> passThroughReduceChannels;
+    int reduceId;
+    int totalNumberOfPartitions;
 
-        //no merging at all.
-	int currentKey; 
-        int currentChannelIndex; //current channel under scanning
-        int sizeOfChannels; //total number of the channels registered.
+    //no merging at all.
+    int currentKey;
+    int currentChannelIndex; //current channel under scanning
+    int sizeOfChannels; //total number of the channels registered.
 
-private:
+    long localBucketsRead {0};
+    long remoteBucketsRead {0};
 
+public:
+    //passed in: the reducer id and the total number of the partitions for the reduce side.
+    PassThroughReduceEngineWithIntKeys(int rId, int rPartitions):
+    reduceId(rId), totalNumberOfPartitions(rPartitions), currentKey(-1),
+    currentChannelIndex (0),
+    sizeOfChannels (0) {
+        //do nothing
+    }
 
-public: 
+    /*
+     * to add the channel for merge sort, passing in the map bucket.
+     */
+    void addPassThroughReduceChannel(MapBucket &mapBucket) {
+        PassThroughReduceChannelWithIntKeys  channel(mapBucket,reduceId, totalNumberOfPartitions);
+        passThroughReduceChannels.push_back(channel);
+    }
 
-	//passed in: the reducer id and the total number of the partitions for the reduce side.
-	PassThroughReduceEngineWithIntKeys(int rId, int rPartitions) :
-	        reduceId(rId), totalNumberOfPartitions(rPartitions), currentKey(-1),
-		currentChannelIndex (0),
-		sizeOfChannels (0)
-                {
-		    //do nothing
-	}
+    /*
+     * to init the passthrough reduce engine.
+     */
+    void init();
 
-	/*
-	 * to add the channel for merge sort, passing in the map bucket. 
-	 */
-	void addPassThroughReduceChannel(MapBucket &mapBucket) {
-	    PassThroughReduceChannelWithIntKeys  channel(mapBucket,reduceId, totalNumberOfPartitions);
-    	    passThroughReduceChannels.push_back(channel);
-	}
+    /*
+     * to decide whether the engine has exhausted scanning all of the channels
+     */
+    bool hasNext() {
+        if((currentChannelIndex < sizeOfChannels) &&
+           passThroughReduceChannels[currentChannelIndex].hasNext()) {
+            return true;
+        }
+        else {
+            //move to next channel that has non-zero elements in the channel
+            while( (currentChannelIndex < sizeOfChannels)
+                   && (!passThroughReduceChannels[currentChannelIndex].hasNext())) {
+                currentChannelIndex++;
 
-	/*
-	 * to init the passthrough reduce engine.
-	 */
-	void init(); 
+                if (passThroughReduceChannels[currentChannelIndex].isSameNode()) {
+                    localBucketsRead++;
+                } else {
+                    remoteBucketsRead++;
+                }
+            }
+            //until we run out of channel, and one channel has non-empty key/value pair
+            if((currentChannelIndex < sizeOfChannels) &&
+               passThroughReduceChannels[currentChannelIndex].hasNext()) {
+                return true;
+            }
+            else {
+                return false;
+            }
+        }
+    }
 
+    //NOTE: we still use the mergesorted map buckets as the result first. we will change the name of 
+    //mergesorted map buckets later.
+    void getNextKeyValuePair(IntKeyWithFixedLength::PassThroughMapBuckets& passThroughResultHolder);
 
-        /*
-         * to reset the buffer manager buffer to the beginning, for next key/values pair retrieval
-         */
-        //void reset_buffermgr() {
-	//  bufferMgr->reset();
-	//}
-          
-	/*
-	* to decide whether the engine has exhausted scanning all of the channels 
-	*/
-	bool hasNext() {
-          if((currentChannelIndex < sizeOfChannels) && 
-		passThroughReduceChannels[currentChannelIndex].hasNext()) {
-	    return true;
-	  } 
-          else {
-	    //move to next channel that has non-zero elements in the channel
- 	    while( (currentChannelIndex < sizeOfChannels)
-		   && (!passThroughReduceChannels[currentChannelIndex].hasNext())) {
-	      currentChannelIndex++;
-	    }
-	    //until we run out of channel, and one channel has non-empty key/value pair
-	    if((currentChannelIndex < sizeOfChannels) && 
-	       passThroughReduceChannels[currentChannelIndex].hasNext()) {
-   	       return true;
-	    }
-	    else {
-              return false; 
-	    }
-	  }
-	}
+    /*
+     *for all of channels to be merged, to get the next unique key.  For example, key =  198. 
+     */
+    int getCurrentKey() {
+        return currentKey;
+    }
 
-        //NOTE: we still use the mergesorted map buckets as the result first. we will change the name of 
-        //mergesorted map buckets later.
-	void getNextKeyValuePair(IntKeyWithFixedLength::PassThroughMapBuckets& passThroughResultHolder);
+    //to release the DRAM related resources.
+    void shutdown();
 
+    long getLocalBucketsRead() {
+        return localBucketsRead;
+    }
 
-	/*
-	 *for all of channels to be merged, to get the next unique key.  For example, key =  198. 
-	 */
-	int  getCurrentKey() {
-	    return currentKey; 
-	}
-
-        //to release the DRAM related resources.
-        void shutdown(); 
+    long getRemoteBucketsRead() {
+        return remoteBucketsRead;
+    }
 };
-
 
 #endif /*_PASSTHROUGH_REDUCE_CHANNEL_WITH_INT_KEY_H__*/

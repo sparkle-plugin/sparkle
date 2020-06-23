@@ -14,18 +14,16 @@
  * limitations under the License.
  *
  */
-
 package org.apache.spark.shuffle.shm
 
+import java.nio.ByteBuffer
+
+import org.apache.spark.{InterruptibleIterator, TaskContext}
+import org.apache.spark.SparkEnv
 import org.apache.spark.internal.Logging
 import org.apache.spark.shuffle.{BaseShuffleHandle, ShuffleReader}
-import org.apache.spark.TaskContext
-
 import org.apache.spark.serializer.KryoSerializer;
-import org.apache.spark.SparkEnv;
-
-import java.nio.ByteBuffer
-import org.apache.spark.{InterruptibleIterator, TaskContext}
+import org.apache.spark.sql.execution.UnsafeRowSerializer
 
 import com.hp.hpl.firesteel.shuffle.{ThreadLocalShuffleResourceHolder, ShuffleStoreManager}
 import com.hp.hpl.firesteel.shuffle.ReduceSHMShuffleStore
@@ -110,82 +108,50 @@ private[spark] class ShmShuffleReader[K, C](shuffleStoreMgr:ShuffleStoreManager,
     reduceShuffleStore.setEnableJniCallback(
       SparkEnv.get.conf.getBoolean("spark.shm.enable.jni.callback", false));
 
+    if (dep.serializer.isInstanceOf[UnsafeRowSerializer]) {
+      reduceShuffleStore.isUnsafeRow = true
+      reduceShuffleStore.setUnsafeRowSerializer(dep.serializer)
+    }
+
     val iter =
       ShmShuffleStoreShuffleFetcher.fetch(reduceShuffleStore,shuffleId, reduceId,
                   ordering, aggregation, context)
 
-    val aggregatedIter: Iterator[Product2[K, C]] = if (dep.keyOrdering.isDefined) {
-        val resultIterator ={
+    val aggregatedIter: Iterator[Product2[K, C]] = if (dep.aggregator.isDefined) {
+      logInfo("ShmShuffleReader, aggregated result for downstream processing")
 
-          val aggregatedIter: Iterator[Product2[K, C]] = if (dep.aggregator.isDefined) {
-            //TODO: I should only need an array to combine, not append-only-map.
-            //This is ordering, and aggregation as well, with type of (K, Seq[V])
-            logInfo("ShmShuffleReader, ordered and aggregated result for downstream processing")
-            //for implicit conversion to aggregator with multi-values handling
-            import ShmShuffleWithMultiValues._
-            new InterruptibleIterator(context,
-              dep.aggregator.get.combineMultiValuesByKey(iter, context))
+      val keyValuesIterator = iter.asInstanceOf[Iterator[(K, Seq[Nothing])]]
 
-          } else if (dep.aggregator.isEmpty && dep.mapSideCombine) {
-              throw new IllegalStateException("Aggregator is empty for map-side combine")
-          } else {
-            //no aggregation,we already retrieve pair-byte-pair
-            logInfo("ShmShuffleReader, ordered k/v pass-through for downstream processing")
-            iter.asInstanceOf[Iterator[Product2[K, C]]].map(pair => (pair._1, pair._2))
-          }
+      keyValuesIterator.map(keyValues => {
+        val valueIter = keyValues._2.iterator
 
-          aggregatedIter
+        var combinedValue = dep.aggregator.get.createCombiner(valueIter.next)
+        while (valueIter.hasNext) {
+          combinedValue =
+            dep.aggregator.get.mergeValue(combinedValue, valueIter.next)
         }
 
-        resultIterator
-    }
-    else {
-       val resultIterator = {
-         val aggregatedIter: Iterator[Product2[K, C]] = if (dep.aggregator.isDefined) {
-           //This is aggregation, without ordering, actually with type of (K, Seq[V])
-           logInfo("ShmShuffleReader, un-ordered and aggregated result for downstream processing")
-           //for implicit conversion to aggregator with multi-values handling
-           import ShmShuffleWithMultiValues._
-           new InterruptibleIterator (context,
-             dep.aggregator.get.combineMultiValuesByKey(iter, context))
-
-         } else if (dep.aggregator.isEmpty && dep.mapSideCombine) {
-           throw new IllegalStateException("Aggregator is empty for map-side combine")
-         } else {
-            //this is no aggregation, no ordering, that is,
-            //straight pass-through. we have special key/value pass-through
-            logInfo("ShmShuffleReader, straight pass-through for downstream processing")
-            iter.asInstanceOf[Iterator[Product2[K, C]]].map(pair => (pair._1, pair._2))
-         }
-
-         aggregatedIter
-       }
-       resultIterator
-    }
-
-    context.taskMetrics.mergeShuffleReadMetrics()
-
-    //return
-    aggregatedIter
-  }
-
-
-
-  private def convertValues [K, C] (k: K, multipleValues: Seq[C]): Iterator[(K,C)] ={
-    val iter = multipleValues.iterator
-    def iterator: Iterator[(K,C)] = new Iterator[(K,C)] {
-
-      override def hasNext: Boolean = iter.hasNext
-      override def next(): (K,C) = {
-        if (!hasNext) {
-          throw new NoSuchElementException
-        }
-        (k, iter.next())
-
+        (keyValues._1, combinedValue)
+      })
+    } else if (dep.aggregator.isEmpty && dep.mapSideCombine) {
+      throw new IllegalStateException("Aggregator is empty for map-side combine")
+    } else {
+      //no aggregation,we already retrieve pair-byte-pair
+      if (dep.keyOrdering.isDefined) {
+        logInfo("ShmShuffleReader, merge-sort for downstream processing")
+      } else {
+        logInfo("ShmShuffleReader, pass-through for downstream processing")
       }
+
+      iter.asInstanceOf[Iterator[Product2[K, C]]]
     }
 
-    iterator
+    aggregatedIter match {
+      case _: InterruptibleIterator[Product2[K, C]] => aggregatedIter
+      case _ =>
+        // Use another interruptible iterator here to support task cancellation as aggregator.
+        new InterruptibleIterator[Product2[K, C]](context, aggregatedIter)
+    }
   }
 
   def stop(): Unit = {

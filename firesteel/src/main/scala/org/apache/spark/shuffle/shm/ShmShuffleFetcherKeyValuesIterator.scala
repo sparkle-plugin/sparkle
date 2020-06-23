@@ -14,21 +14,8 @@
  * limitations under the License.
  *
  */
-
 package org.apache.spark.shuffle.shm
 
-import com.hp.hpl.firesteel.shuffle.ShuffleDataModel.ReduceStatus
-import org.apache.spark.TaskContext
-import com.hp.hpl.firesteel.shuffle.ReduceSHMShuffleStore
-import com.hp.hpl.firesteel.shuffle.ShuffleDataModel
-import org.apache.spark.internal.Logging
-import org.apache.spark.storage.{BlockId, BlockManagerId, ShuffleBlockId}
-
-import scala.collection.mutable.ArrayBuffer
-
-//to pass collection between Java and Scala
-import scala.language.existentials
-import scala.collection.JavaConversions._
 import java.util.List
 import java.util.ArrayList
 import java.lang.{Float => JFloat}
@@ -36,15 +23,31 @@ import java.lang.{Integer => JInteger}
 import java.lang.{Long => JLong}
 import java.lang.{String => JString}
 
+//to pass collection between Java and Scala
+import scala.language.existentials
+import scala.collection.JavaConversions._
+import scala.collection.mutable.ArrayBuffer
+
+import org.apache.spark.TaskContext
+import org.apache.spark.internal.Logging
+import org.apache.spark.storage.{BlockId, BlockManagerId, ShuffleBlockId}
+import org.apache.spark.executor.TempShuffleReadMetrics
+
+import com.hp.hpl.firesteel.shuffle.ReduceSHMShuffleStore
+import com.hp.hpl.firesteel.shuffle.ShuffleDataModel
+import com.hp.hpl.firesteel.shuffle.ShuffleDataModel.ReduceStatus
+
 /**
  * to create iterator that wrapps the de-serialized data pulled from the C++ shuffle engine,
  * with returned iterator to be (key, {multiple values})
  *
  */
 private[spark] class ShmShuffleFetcherKeyValuesIterator
-    (context: TaskContext,
-     statuses: Seq[(BlockId, Long, Long, Long, Boolean)],
-     reduceShuffleStore: ReduceSHMShuffleStore)
+  (context: TaskContext,
+    statuses: Seq[(BlockId, Long, Long, Long, Boolean)],
+    reduceShuffleStore: ReduceSHMShuffleStore,
+    shuffleMetrics: TempShuffleReadMetrics
+  )
     extends Iterator[(Any, Seq[Any])] with Logging {
 
    //this parameter will be set as a configuration parameter later.
@@ -74,9 +77,6 @@ private[spark] class ShmShuffleFetcherKeyValuesIterator
    private val skvalues = new ArrayList[JString]()
    private val bakvalues = new ArrayList[Array[Byte]]()
    private val okvalues = new ArrayList[Object]()
-
-  private val shuffleMetrics =
-    context.taskMetrics().createTempShuffleReadMetrics()
 
    initialize()
 
@@ -119,10 +119,6 @@ private[spark] class ShmShuffleFetcherKeyValuesIterator
        shuffleMetrics.incLocalBytesRead(reduceStatus.getBytesDataChunks)
        shuffleMetrics.incRemoteBlocksFetched(reduceStatus.getNumRemoteDataChunks)
        shuffleMetrics.incRemoteBytesRead(reduceStatus.getBytesRemoteDataChunks)
-       // If jvm callback enabled, the status contains # of records read from buckets.
-       if (reduceShuffleStore.getEnableJniCallback) {
-         shuffleMetrics.incRecordsRead(reduceStatus.getNumRecords)
-       }
      }
 
       fetchRound=0
@@ -271,7 +267,6 @@ private[spark] class ShmShuffleFetcherKeyValuesIterator
          var numRawPairs = Array(0)
          actualPairs = reduceShuffleStore.getKVPairs(
            okvalues, vvalues, SHUFFLE_MERGED_KEYVALUE_PAIRS_RETRIEVAL_SIZE, numRawPairs)
-         shuffleMetrics.incRecordsRead(numRawPairs{0})
 
          //now, push the data to the kvbuffer.
          for (i <- 0 to actualPairs-1) {
